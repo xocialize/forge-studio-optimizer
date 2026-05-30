@@ -229,17 +229,29 @@ def _process_pair(job: PairJob) -> PairResult:
     y = rng_py.randint(0, h - job.tile_size)
     tile_hq = img[y:y + job.tile_size, x:x + job.tile_size].copy()
 
-    # Pick degradation kind + parameter.
+    # Pick degradation kind + parameter, then apply it resiliently. The codec
+    # round-trips shell out to ffmpeg ~num_pairs times across many parallel
+    # workers, and this ffmpeg build occasionally fails a single encode/decode
+    # under load (ISOBMFF mux race, transient bad output, etc.). A single bad
+    # pair must NOT abort a multi-hour run: retry with a fresh draw, then fall
+    # back to pure-numpy noise (which never touches ffmpeg) as a last resort.
     kind = rng_py.choice(job.enabled_kinds)
     param = _sample_param(rng_py, kind)
-
-    tile_lq = deg.apply_degradation(
-        tile_hq,
-        kind=kind,
-        param=param,
-        rng=rng_np,
-        ffmpeg_bin=job.ffmpeg_bin,
-    )
+    tile_lq = None
+    for _attempt in range(4):
+        try:
+            tile_lq = deg.apply_degradation(
+                tile_hq, kind=kind, param=param, rng=rng_np, ffmpeg_bin=job.ffmpeg_bin,
+            )
+            break
+        except Exception:  # noqa: BLE001 — transient ffmpeg codec failure; re-draw
+            kind = rng_py.choice(job.enabled_kinds)
+            param = _sample_param(rng_py, kind)
+    if tile_lq is None:
+        kind, param = "noise", _sample_param(rng_py, "noise")
+        tile_lq = deg.apply_degradation(
+            tile_hq, kind=kind, param=param, rng=rng_np, ffmpeg_bin=job.ffmpeg_bin,
+        )
 
     out_dir = Path(job.output_pairs_dir)
     stem = f"{job.idx:06d}"
@@ -502,9 +514,17 @@ def run(args: argparse.Namespace) -> int:
     try:
         with ProcessPoolExecutor(max_workers=workers) as pool:
             futures = [pool.submit(_process_pair, j) for j in jobs]
+            failures = 0
             with tqdm(total=len(futures), desc="pairs", unit="pair") as bar:
                 for fut in as_completed(futures):
-                    result = fut.result()
+                    try:
+                        result = fut.result()
+                    except Exception as exc:  # noqa: BLE001 — never let one pair kill the run
+                        failures += 1
+                        bar.update(1)
+                        if failures <= 20:
+                            print(f"  [skip] pair failed ({failures}): {exc}", file=sys.stderr)
+                        continue
                     breakdown[result.degradation] += 1
                     completed += 1
                     completed_since_flush += 1
