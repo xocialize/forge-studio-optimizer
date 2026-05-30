@@ -229,7 +229,12 @@ def encode_hevc(
             # Quiet the libx265 banner so '-loglevel error' actually stays quiet.
             "-x265-params", "log-level=error",
         ],
-        container_ext=".mp4",
+        # Matroska, not .mp4: this ffmpeg-full build cannot mux single-frame
+        # HEVC into ISOBMFF (mp4/mov) — "Not yet implemented, patches welcome".
+        # .mkv (same container AV1 uses here) muxes + decodes cleanly. The
+        # container is irrelevant to the libx265/CRF compression artifact we
+        # actually want, so this is a pure robustness swap.
+        container_ext=".mkv",
         ffmpeg_bin=ffmpeg_bin,
     )
 
