@@ -37,3 +37,6 @@ __pycache__/
 
 # Proprietary real-signage eval set (IBM Think 26) — local only
 Tests/Corpus/signage-real/
+
+# Swift coverage artifact
+*.profraw
