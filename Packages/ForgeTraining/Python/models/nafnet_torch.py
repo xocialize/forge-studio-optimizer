@@ -7,7 +7,7 @@ Silicon), then B.4 converts the state_dict to MLX safetensors via the standard
 ``convert_*_to_mlx.py`` pattern (conv ``(O,I,kH,kW)`` → ``(O,kH,kW,I)``).
 
 Default config is the ADR-0003 rescope: ``width=24, enc=[1,1,1,1],
-middle=1, dec=[1,1,1,1]`` (~1.4M params, ~2.8 MB FP16) so the ForgeOptimizer
+middle=1, dec=[1,1,1,1]`` (~2.5M params, ~5 MB FP16 (matches the Swift port; ADR-0003 prose "1.4M" was an under-estimate)) so the ForgeOptimizer
 bundle stays under the §4 ``bundle_size_max`` gate. The wider
 ``width=32, [2,2,2,2]`` config is reachable via constructor args if B.3
 acceptance shows the default underfits (ADR-0003 revisit trigger).
@@ -183,5 +183,5 @@ if __name__ == "__main__":
     y = m(x)
     print(f"NAFNet default: {n/1e6:.2f}M params, in {tuple(x.shape)} -> out {tuple(y.shape)}")
     assert y.shape == x.shape
-    # ADR-0003: ~1.4M params for the rescoped default.
+    # Verified 2.54M, identical structure to the Swift NAFNet port (test band 0.5-3M).
     assert 0.8e6 < n < 3.0e6, f"param count {n} outside ADR-0003 band"
