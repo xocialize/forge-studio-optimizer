@@ -1,0 +1,719 @@
+{
+  "corpus" : {
+    "clips" : [
+      {
+        "category" : "general",
+        "codec" : "h264",
+        "duration_s" : 30,
+        "frame_rate" : 24,
+        "id" : "general-film-01",
+        "resolution" : "1920x1080",
+        "sha256" : "dd9b7fb36f235da05f01b81e888ca6934537368942ea0bab720c3404ec3658b6",
+        "subcategory" : "film"
+      },
+      {
+        "category" : "general",
+        "duration_s" : 0,
+        "id" : "general-film-02",
+        "resolution" : "3840x1714",
+        "sha256" : "",
+        "subcategory" : "film"
+      },
+      {
+        "category" : "general",
+        "codec" : "h264",
+        "duration_s" : 30,
+        "frame_rate" : 24,
+        "id" : "general-animation-01",
+        "resolution" : "1920x1080",
+        "sha256" : "91b492bd6e6d84cf699c8aa85fdf193a483eee5cb8c00ec890123fc5893cc9d0",
+        "subcategory" : "animation"
+      },
+      {
+        "category" : "general",
+        "duration_s" : 0,
+        "id" : "general-animation-02",
+        "resolution" : "1920x1080",
+        "sha256" : "",
+        "subcategory" : "animation"
+      },
+      {
+        "category" : "general",
+        "duration_s" : 0,
+        "id" : "general-sports-01",
+        "resolution" : "1920x1080",
+        "sha256" : "",
+        "subcategory" : "sports"
+      },
+      {
+        "category" : "general",
+        "duration_s" : 0,
+        "id" : "general-sports-02",
+        "resolution" : "1920x1080",
+        "sha256" : "",
+        "subcategory" : "sports"
+      },
+      {
+        "category" : "general",
+        "duration_s" : 0,
+        "id" : "general-talkinghead-01",
+        "resolution" : "1920x1080",
+        "sha256" : "",
+        "subcategory" : "talking-head"
+      },
+      {
+        "category" : "general",
+        "duration_s" : 0,
+        "id" : "general-talkinghead-02",
+        "resolution" : "1920x1080",
+        "sha256" : "",
+        "subcategory" : "talking-head"
+      },
+      {
+        "category" : "general",
+        "duration_s" : 0,
+        "id" : "general-screencapture-01",
+        "resolution" : "1920x1080",
+        "sha256" : "",
+        "subcategory" : "screen-capture"
+      },
+      {
+        "category" : "general",
+        "duration_s" : 0,
+        "id" : "general-screencapture-02",
+        "resolution" : "1920x1080",
+        "sha256" : "",
+        "subcategory" : "screen-capture"
+      },
+      {
+        "category" : "signage",
+        "codec" : "h264",
+        "duration_s" : 30,
+        "frame_rate" : 30,
+        "id" : "signage-static-logo-01",
+        "resolution" : "1920x1080",
+        "sha256" : "5479a8ee0fee77f2ad494a4e32cf6fdbca9447c6beaf56f5f45fc2a678d442f2",
+        "subcategory" : "static-logo"
+      },
+      {
+        "category" : "signage",
+        "duration_s" : 0,
+        "id" : "signage-static-logo-02",
+        "resolution" : "1920x1080",
+        "sha256" : "",
+        "subcategory" : "static-logo"
+      },
+      {
+        "category" : "signage",
+        "duration_s" : 0,
+        "id" : "signage-dynamic-logo-01",
+        "resolution" : "1920x1080",
+        "sha256" : "",
+        "subcategory" : "dynamic-logo"
+      },
+      {
+        "category" : "signage",
+        "duration_s" : 0,
+        "id" : "signage-dynamic-logo-02",
+        "resolution" : "1920x1080",
+        "sha256" : "",
+        "subcategory" : "dynamic-logo"
+      },
+      {
+        "category" : "signage",
+        "duration_s" : 0,
+        "id" : "signage-text-overlay-01",
+        "resolution" : "1920x1080",
+        "sha256" : "",
+        "subcategory" : "text-overlay"
+      },
+      {
+        "category" : "signage",
+        "duration_s" : 0,
+        "id" : "signage-text-overlay-02",
+        "resolution" : "1920x1080",
+        "sha256" : "",
+        "subcategory" : "text-overlay"
+      },
+      {
+        "category" : "signage",
+        "duration_s" : 0,
+        "id" : "signage-text-overlay-03",
+        "resolution" : "1920x1080",
+        "sha256" : "",
+        "subcategory" : "text-overlay"
+      },
+      {
+        "category" : "signage",
+        "duration_s" : 0,
+        "id" : "signage-transition-01",
+        "resolution" : "1920x1080",
+        "sha256" : "",
+        "subcategory" : "transition"
+      },
+      {
+        "category" : "signage",
+        "duration_s" : 0,
+        "id" : "signage-transition-02",
+        "resolution" : "1920x1080",
+        "sha256" : "",
+        "subcategory" : "transition"
+      },
+      {
+        "category" : "signage",
+        "duration_s" : 0,
+        "id" : "signage-transition-03",
+        "resolution" : "1920x1080",
+        "sha256" : "",
+        "subcategory" : "transition"
+      },
+      {
+        "category" : "legacy",
+        "duration_s" : 0,
+        "id" : "legacy-dvd-mpeg2-01",
+        "resolution" : "720x540",
+        "sha256" : "",
+        "subcategory" : "dvd-mpeg2"
+      },
+      {
+        "category" : "legacy",
+        "duration_s" : 0,
+        "id" : "legacy-dvd-mpeg2-02",
+        "resolution" : "720x480",
+        "sha256" : "",
+        "subcategory" : "dvd-mpeg2"
+      },
+      {
+        "category" : "legacy",
+        "duration_s" : 0,
+        "id" : "legacy-dvd-mpeg2-03",
+        "resolution" : "640x480",
+        "sha256" : "",
+        "subcategory" : "dvd-mpeg2"
+      },
+      {
+        "category" : "legacy",
+        "duration_s" : 0,
+        "id" : "legacy-dvd-mpeg2-04",
+        "resolution" : "640x480",
+        "sha256" : "",
+        "subcategory" : "dvd-mpeg2"
+      },
+      {
+        "category" : "legacy",
+        "duration_s" : 0,
+        "id" : "legacy-broadcast-01",
+        "resolution" : "640x480",
+        "sha256" : "",
+        "subcategory" : "broadcast-capture"
+      },
+      {
+        "category" : "legacy",
+        "duration_s" : 0,
+        "id" : "legacy-broadcast-02",
+        "resolution" : "640x480",
+        "sha256" : "",
+        "subcategory" : "broadcast-capture"
+      },
+      {
+        "category" : "legacy",
+        "duration_s" : 0,
+        "id" : "legacy-broadcast-03",
+        "resolution" : "640x480",
+        "sha256" : "",
+        "subcategory" : "broadcast-capture"
+      },
+      {
+        "category" : "legacy",
+        "duration_s" : 0,
+        "id" : "legacy-interlaced-01",
+        "resolution" : "1920x1080",
+        "sha256" : "",
+        "subcategory" : "interlaced"
+      },
+      {
+        "category" : "legacy",
+        "duration_s" : 0,
+        "id" : "legacy-interlaced-02",
+        "resolution" : "640x480",
+        "sha256" : "",
+        "subcategory" : "interlaced"
+      },
+      {
+        "category" : "legacy",
+        "duration_s" : 0,
+        "id" : "legacy-interlaced-03",
+        "resolution" : "1920x1080",
+        "sha256" : "",
+        "subcategory" : "interlaced"
+      }
+    ],
+    "name" : "forge-30clip-eval",
+    "version" : "1.0-draft"
+  },
+  "dependencies" : {
+    "ffmpeg_version" : "ffmpeg version 8.1.1 Copyright (c) 2000-2026 the FFmpeg developers",
+    "mlx_swift_version" : "",
+    "mlx_version" : "",
+    "swift_version" : "Apple Swift version 6.3.2 (swiftlang-6.3.2.1.108 clang-2100.1.1.101)",
+    "xcode_version" : "Xcode 26.5"
+  },
+  "gates" : {
+    "all_passed" : false,
+    "results" : [
+      {
+        "actual" : 6258032,
+        "comparison" : "lte",
+        "description" : "Total .mlpackage bytes in Resources\/Models\/ (ForgeOptimizer)",
+        "gate_id" : "bundle_size_max",
+        "passed" : true,
+        "target" : 12000000
+      },
+      {
+        "actual" : 0,
+        "comparison" : "gte",
+        "corpus_subset" : "general",
+        "description" : "Realtime factor at 1080p Balanced on M4 Pro, mean over general subset [SKIPPED: requires M4 Pro, got M5 Max]",
+        "gate_id" : "throughput_balanced_m4pro_1080p",
+        "hardware_required" : "M4 Pro",
+        "passed" : false,
+        "target" : 0.7
+      },
+      {
+        "actual" : 0,
+        "comparison" : "gte",
+        "corpus_subset" : "all",
+        "description" : "VMAF at Balanced, mean over all clips",
+        "gate_id" : "vmaf_balanced_min",
+        "passed" : false,
+        "target" : 90
+      },
+      {
+        "actual" : 0,
+        "comparison" : "gte",
+        "corpus_subset" : "general",
+        "description" : "Savings vs non-optimized at Balanced, mean over general subset",
+        "gate_id" : "compression_balanced_min",
+        "passed" : false,
+        "target" : 0.35
+      },
+      {
+        "actual" : 0,
+        "comparison" : "gte",
+        "corpus_subset" : "signage",
+        "description" : "Savings vs non-optimized at Maximum on signage subset",
+        "gate_id" : "compression_signage_max_min",
+        "passed" : false,
+        "target" : 0.55
+      },
+      {
+        "actual" : 0,
+        "comparison" : "gte",
+        "corpus_subset" : "general",
+        "description" : "Playback tier fps at 1080p→4K on M4 Pro [SKIPPED: requires M4 Pro, got M5 Max]",
+        "gate_id" : "playback_4k_fps_min",
+        "hardware_required" : "M4 Pro",
+        "passed" : false,
+        "target" : 30
+      },
+      {
+        "actual" : 0,
+        "comparison" : "gte",
+        "corpus_subset" : "all",
+        "description" : "SRCC vs human MOS on signage holdout (only valid after Phase E)",
+        "gate_id" : "quality_regressor_srcc_min",
+        "passed" : true,
+        "target" : 0.9,
+        "tolerance" : 1
+      }
+    ],
+    "version" : "v1.0"
+  },
+  "git" : {
+    "branch" : "feature\/forge-2026-q2-refresh",
+    "dirty" : true,
+    "remote_url" : "https:\/\/github.com\/xocialize-code\/Forge.git",
+    "sha" : "b735ae96a47e6de08e5a8c7e4511fd6d83f5d687"
+  },
+  "hardware" : {
+    "chip" : "M5 Max",
+    "cpu_cores" : 18,
+    "memory_gb" : 128,
+    "model_identifier" : "Mac17,7",
+    "on_battery" : false,
+    "os_version" : "macOS 26.6",
+    "thermal_state" : "fair"
+  },
+  "pipeline_results" : {
+    "forge_optimizer" : {
+      "bundle_bytes" : 6258032,
+      "model_inventory" : [
+        {
+          "format" : "mlpackage",
+          "implementation" : "arcnn",
+          "role" : "artifact_removal",
+          "size_bytes" : 242832,
+          "spdx_license" : "Proprietary",
+          "version" : "0.3.0"
+        },
+        {
+          "format" : "mlpackage",
+          "implementation" : "dncnn_color",
+          "role" : "denoise",
+          "size_bytes" : 1142074,
+          "spdx_license" : "Proprietary",
+          "version" : "0.3.0"
+        },
+        {
+          "format" : "mlpackage",
+          "implementation" : "dncnn_gray",
+          "role" : "denoise",
+          "size_bytes" : 1137455,
+          "spdx_license" : "Proprietary",
+          "version" : "0.3.0"
+        },
+        {
+          "format" : "mlpackage",
+          "implementation" : "quality_regressor",
+          "role" : "quality_regressor",
+          "size_bytes" : 3444959,
+          "spdx_license" : "Proprietary-Research",
+          "version" : "0.3.0"
+        },
+        {
+          "format" : "mlpackage",
+          "implementation" : "espcn_x2",
+          "role" : "super_resolution_2x",
+          "size_bytes" : 134961,
+          "spdx_license" : "Proprietary",
+          "version" : "0.3.0"
+        },
+        {
+          "format" : "mlpackage",
+          "implementation" : "espcn_x4",
+          "role" : "super_resolution_4x",
+          "size_bytes" : 155751,
+          "spdx_license" : "Proprietary",
+          "version" : "0.3.0"
+        }
+      ],
+      "runs" : [
+
+      ]
+    },
+    "forge_upscaler" : {
+      "bundle_bytes" : 0,
+      "model_inventory" : [
+
+      ],
+      "tiers" : {
+        "playback" : [
+          {
+            "backend" : "efrlfn-x4",
+            "clip_id" : "general-film-01",
+            "frame_count" : 718,
+            "input_resolution" : "1920x1080",
+            "memory" : {
+              "peak_bytes" : 476987392
+            },
+            "output_resolution" : "7680x4320",
+            "quality" : {
+              "ssim" : 1
+            },
+            "scale_factor" : 4,
+            "speed" : {
+              "fps_mean" : 0.8111658523400835,
+              "ms_first_frame" : 1206.1685,
+              "ms_per_frame_mean" : 1232.793512097631,
+              "ms_per_frame_median" : 1219.370042,
+              "ms_per_frame_p95" : 1341.0797837999999,
+              "ms_per_frame_p99" : 1396.21431316,
+              "ms_per_frame_stddev" : 51.30411735247029,
+              "realtime_factor" : 0.033798577180836814
+            },
+            "status" : "success"
+          },
+          {
+            "backend" : "srvggnet-general-x4",
+            "clip_id" : "general-film-01",
+            "frame_count" : 718,
+            "input_resolution" : "1920x1080",
+            "memory" : {
+              "peak_bytes" : 535429120
+            },
+            "output_resolution" : "7680x4320",
+            "quality" : {
+              "ssim" : 1
+            },
+            "scale_factor" : 4,
+            "speed" : {
+              "fps_mean" : 0.6208320415380517,
+              "ms_first_frame" : 1730.829583,
+              "ms_per_frame_mean" : 1610.7416065746156,
+              "ms_per_frame_median" : 1613.1604579999998,
+              "ms_per_frame_p95" : 1639.2709162,
+              "ms_per_frame_p99" : 1695.6422634400005,
+              "ms_per_frame_stddev" : 27.281823192052038,
+              "realtime_factor" : 0.025868001730752155
+            },
+            "status" : "success"
+          },
+          {
+            "backend" : "srvggnet-general-wdn-x4",
+            "clip_id" : "general-film-01",
+            "frame_count" : 718,
+            "input_resolution" : "1920x1080",
+            "memory" : {
+              "peak_bytes" : 535871488
+            },
+            "output_resolution" : "7680x4320",
+            "quality" : {
+              "ssim" : 1
+            },
+            "scale_factor" : 4,
+            "speed" : {
+              "fps_mean" : 0.6253187066299949,
+              "ms_first_frame" : 1482.0351249999999,
+              "ms_per_frame_mean" : 1599.184526861926,
+              "ms_per_frame_median" : 1603.7164579999999,
+              "ms_per_frame_p95" : 1624.066142,
+              "ms_per_frame_p99" : 1634.21966816,
+              "ms_per_frame_stddev" : 25.947378290494537,
+              "realtime_factor" : 0.02605494610958312
+            },
+            "status" : "success"
+          },
+          {
+            "backend" : "srvggnet-anime-x4",
+            "clip_id" : "general-film-01",
+            "frame_count" : 718,
+            "input_resolution" : "1920x1080",
+            "memory" : {
+              "peak_bytes" : 536805376
+            },
+            "output_resolution" : "7680x4320",
+            "quality" : {
+              "ssim" : 1
+            },
+            "scale_factor" : 4,
+            "speed" : {
+              "fps_mean" : 1.020014947939822,
+              "ms_first_frame" : 959.445417,
+              "ms_per_frame_mean" : 980.3777895801946,
+              "ms_per_frame_median" : 976.18525,
+              "ms_per_frame_p95" : 1060.2639416,
+              "ms_per_frame_p99" : 1076.51756728,
+              "ms_per_frame_stddev" : 36.00498802893769,
+              "realtime_factor" : 0.04250062283082592
+            },
+            "status" : "success"
+          },
+          {
+            "backend" : "efrlfn-x4",
+            "clip_id" : "general-animation-01",
+            "frame_count" : 718,
+            "input_resolution" : "1920x1080",
+            "memory" : {
+              "peak_bytes" : 589938688
+            },
+            "output_resolution" : "7680x4320",
+            "quality" : {
+              "ssim" : 1
+            },
+            "scale_factor" : 4,
+            "speed" : {
+              "fps_mean" : 0.8414854046155411,
+              "ms_first_frame" : 1058.319792,
+              "ms_per_frame_mean" : 1188.3747412789426,
+              "ms_per_frame_median" : 1183.129083,
+              "ms_per_frame_p95" : 1221.4368166,
+              "ms_per_frame_p99" : 1550.6492265600011,
+              "ms_per_frame_stddev" : 53.50093909018605,
+              "realtime_factor" : 0.03506189185898088
+            },
+            "status" : "success"
+          },
+          {
+            "backend" : "srvggnet-general-x4",
+            "clip_id" : "general-animation-01",
+            "frame_count" : 718,
+            "input_resolution" : "1920x1080",
+            "memory" : {
+              "peak_bytes" : 689471488
+            },
+            "output_resolution" : "7680x4320",
+            "quality" : {
+              "ssim" : 1
+            },
+            "scale_factor" : 4,
+            "speed" : {
+              "fps_mean" : 0.6197908390113958,
+              "ms_first_frame" : 1481.869667,
+              "ms_per_frame_mean" : 1613.4475327112953,
+              "ms_per_frame_median" : 1616.274291,
+              "ms_per_frame_p95" : 1636.5881582000002,
+              "ms_per_frame_p99" : 1653.9783800000002,
+              "ms_per_frame_stddev" : 53.94943843901548,
+              "realtime_factor" : 0.02582461829214149
+            },
+            "status" : "success"
+          },
+          {
+            "backend" : "srvggnet-general-wdn-x4",
+            "clip_id" : "general-animation-01",
+            "frame_count" : 718,
+            "input_resolution" : "1920x1080",
+            "memory" : {
+              "peak_bytes" : 508051456
+            },
+            "output_resolution" : "7680x4320",
+            "quality" : {
+              "ssim" : 1
+            },
+            "scale_factor" : 4,
+            "speed" : {
+              "fps_mean" : 0.6145159483140985,
+              "ms_first_frame" : 1480.233042,
+              "ms_per_frame_mean" : 1627.2970664853574,
+              "ms_per_frame_median" : 1631.967916,
+              "ms_per_frame_p95" : 1650.5821827999998,
+              "ms_per_frame_p99" : 1669.58396472,
+              "ms_per_frame_stddev" : 37.47843194385799,
+              "realtime_factor" : 0.025604831179754105
+            },
+            "status" : "success"
+          },
+          {
+            "backend" : "srvggnet-anime-x4",
+            "clip_id" : "general-animation-01",
+            "frame_count" : 718,
+            "input_resolution" : "1920x1080",
+            "memory" : {
+              "peak_bytes" : 589414400
+            },
+            "output_resolution" : "7680x4320",
+            "quality" : {
+              "ssim" : 1
+            },
+            "scale_factor" : 4,
+            "speed" : {
+              "fps_mean" : 1.0111460943240413,
+              "ms_first_frame" : 969.648792,
+              "ms_per_frame_mean" : 988.976771619246,
+              "ms_per_frame_median" : 979.933042,
+              "ms_per_frame_p95" : 1063.8359004,
+              "ms_per_frame_p99" : 1085.58872828,
+              "ms_per_frame_stddev" : 32.1770446686018,
+              "realtime_factor" : 0.042131087263501725
+            },
+            "status" : "success"
+          },
+          {
+            "backend" : "efrlfn-x4",
+            "clip_id" : "signage-static-logo-01",
+            "frame_count" : 898,
+            "input_resolution" : "1920x1080",
+            "memory" : {
+              "peak_bytes" : 542113792
+            },
+            "output_resolution" : "7680x4320",
+            "quality" : {
+              "ssim" : 1
+            },
+            "scale_factor" : 4,
+            "speed" : {
+              "fps_mean" : 0.8511083303602703,
+              "ms_first_frame" : 1085.146417,
+              "ms_per_frame_mean" : 1174.9385646086962,
+              "ms_per_frame_median" : 1174.875583,
+              "ms_per_frame_p95" : 1200.8950504,
+              "ms_per_frame_p99" : 1212.84087064,
+              "ms_per_frame_stddev" : 17.43092686226664,
+              "realtime_factor" : 0.028370277678675677
+            },
+            "status" : "success"
+          },
+          {
+            "backend" : "srvggnet-general-x4",
+            "clip_id" : "signage-static-logo-01",
+            "frame_count" : 898,
+            "input_resolution" : "1920x1080",
+            "memory" : {
+              "peak_bytes" : 542244864
+            },
+            "output_resolution" : "7680x4320",
+            "quality" : {
+              "ssim" : 1
+            },
+            "scale_factor" : 4,
+            "speed" : {
+              "fps_mean" : 0.6212570402361939,
+              "ms_first_frame" : 1478.488333,
+              "ms_per_frame_mean" : 1609.6397066499446,
+              "ms_per_frame_median" : 1617.096542,
+              "ms_per_frame_p95" : 1638.5604830000002,
+              "ms_per_frame_p99" : 1648.735855,
+              "ms_per_frame_stddev" : 30.116025261500624,
+              "realtime_factor" : 0.02070856800787313
+            },
+            "status" : "success"
+          },
+          {
+            "backend" : "srvggnet-general-wdn-x4",
+            "clip_id" : "signage-static-logo-01",
+            "frame_count" : 898,
+            "input_resolution" : "1920x1080",
+            "memory" : {
+              "peak_bytes" : 542343168
+            },
+            "output_resolution" : "7680x4320",
+            "quality" : {
+              "ssim" : 1
+            },
+            "scale_factor" : 4,
+            "speed" : {
+              "fps_mean" : 0.618683286222664,
+              "ms_first_frame" : 1510.310667,
+              "ms_per_frame_mean" : 1616.335889895206,
+              "ms_per_frame_median" : 1621.0713329999999,
+              "ms_per_frame_p95" : 1640.574075,
+              "ms_per_frame_p99" : 1647.50538832,
+              "ms_per_frame_stddev" : 24.132005863828844,
+              "realtime_factor" : 0.020622776207422134
+            },
+            "status" : "success"
+          },
+          {
+            "backend" : "srvggnet-anime-x4",
+            "clip_id" : "signage-static-logo-01",
+            "frame_count" : 898,
+            "input_resolution" : "1920x1080",
+            "memory" : {
+              "peak_bytes" : 542375936
+            },
+            "output_resolution" : "7680x4320",
+            "quality" : {
+              "ssim" : 1
+            },
+            "scale_factor" : 4,
+            "speed" : {
+              "fps_mean" : 1.0348914419368267,
+              "ms_first_frame" : 979.467083,
+              "ms_per_frame_mean" : 966.2849256231876,
+              "ms_per_frame_median" : 958.22775,
+              "ms_per_frame_p95" : 1019.1041336000001,
+              "ms_per_frame_p99" : 1045.69883336,
+              "ms_per_frame_stddev" : 21.37875779347697,
+              "realtime_factor" : 0.034496381397894224
+            },
+            "status" : "success"
+          }
+        ]
+      }
+    }
+  },
+  "report_id" : "30FFB241-0CE5-420E-AE9C-A2B60F68E06C",
+  "run_label" : "c4-ab-release-allbackends-3clips-v2",
+  "schema_version" : "1.0",
+  "timestamp_utc" : "2026-05-29T04:32:18Z"
+}

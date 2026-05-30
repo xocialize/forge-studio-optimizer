@@ -1,0 +1,6 @@
+# Build workspace — large source trees and intermediate objects
+scratch/
+
+# SPM build
+.build/
+.swiftpm/

@@ -1,0 +1,46 @@
+# =========================
+# ForgeTraining .gitignore
+# =========================
+# Offline-only Python rig. Nothing here ships with the app.
+# Track only source (Python/*.py, *.sh, *.md, *.txt). Everything else is scratch.
+
+# Python venv (bootstrapped by setup.sh)
+.venv/
+venv/
+
+# Python bytecode + caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Generated corpora — pair tiles, manifests, scratch encodes.
+# These are huge (a 500k-pair corpus is ~50-100 GB) and never belong in git.
+corpus/
+corpus_*/
+scratch/
+tmp/
+out/
+*.tiles/
+
+# Per-pair output (defensive — if someone runs the script in-tree by mistake)
+*_hq.png
+*_lq.png
+*_meta.json
+manifest.json
+
+# Dataset stashes (DIV2K / Flickr2K extracts — user-fetched, never committed)
+datasets/
+DIV2K*/
+Flickr2K*/
+SIDD*/
+
+# Editor leftovers
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store

@@ -1,0 +1,35 @@
+# Build artifacts
+build/
+DerivedData/
+xcuserdata/
+.build/
+*.metallib
+
+# macOS
+.DS_Store
+
+# FFmpegXC vendored static libs — rebuilt locally via Packages/FFmpegXC/build.sh
+*.a
+
+# Model weights are gitignored by default, then whitelisted for the vendored
+# Resources/ bundles that ship with the packages.
+*.safetensors
+*.mlpackage
+!Packages/*/Sources/*/Resources/*.mlpackage
+!Packages/*/Sources/*/Resources/**/*.mlpackage
+!Packages/*/Sources/*/Resources/*.mlmodelc
+!Packages/*/Sources/*/Resources/*.safetensors
+
+# Benchmark corpus clips (large; re-fetch via Tests/Corpus/scripts/fetch_corpus.sh)
+Tests/Corpus/clips/
+!Tests/Corpus/clips/.gitkeep
+
+# ForgeTraining (Python) run artifacts
+Packages/ForgeTraining/runs/
+Packages/ForgeTraining/data/
+Packages/ForgeTraining/.venv/
+__pycache__/
+*.pyc
+
+# Local agent/editor config
+.claude/

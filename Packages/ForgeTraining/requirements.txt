@@ -1,0 +1,22 @@
+# ForgeTraining — Python deps for offline NAFNet corpus generation +
+# EfRLFN PyTorch → MLX weight conversion (Phase C.3 / Task #20).
+# Pinned to known-good versions on macOS arm64 / Python 3.12.
+# This rig is dev-only; it never ships in Forge.app.
+
+numpy==1.26.4
+opencv-python==4.10.0.84
+ffmpeg-python==0.2.0
+Pillow==10.4.0
+tqdm==4.66.5
+
+# EfRLFN weight conversion (Phase C.3 / Task #20)
+mlx==0.18.1
+safetensors==0.4.5
+
+# Test deps (kept in same file; setup.sh installs everything in one shot)
+pytest==8.3.3
+
+# Parity-test extra: torch is needed to read the upstream .pt checkpoint and
+# to run numerical-parity tests against the MLX reference. Pinning to the CPU
+# wheel keeps the install size manageable (~200 MB vs ~2 GB for CUDA builds).
+# Install via the dedicated requirements-parity.txt; see setup.sh / README.md.

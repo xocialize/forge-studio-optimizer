@@ -1,0 +1,13 @@
+# ForgeTraining parity-test extras.
+#
+# Install on top of requirements.txt when running the EfRLFN PyTorch ↔ MLX
+# parity tests (Packages/ForgeTraining/Python/tests/test_efrlfn_parity.py).
+#
+#   ./setup.sh
+#   source .venv/bin/activate
+#   pip install -r requirements-parity.txt
+#
+# Per Forge-CodingPlan §C.3, PyTorch is a dev-time-only dependency and never
+# ships in Forge.app. Pinning to the CPU wheel keeps the install ~200 MB.
+
+torch==2.4.1
