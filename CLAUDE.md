@@ -87,6 +87,16 @@ Benchmark report: `Docs/Benchmarks/benchmark-c4-ab-v2-e06ff85.json`. Real-signag
   `data/` — never committed; only weights ship. Next: B.4 convert (PyTorch→MLX)
   → B.5 wire (replaces v0.3 256² stubs) → unblocks the #40 compression gates.
   Runbook: `ForgeTraining/TRAINING.md`.
+- **B.4 converter — READY + validated** (`Scripts/convert_nafnet_to_mlx.py` +
+  MLX-Python oracle `Python/models/nafnet_mlx.py`). PyTorch→MLX key remap
+  (`encoders.i.j`→`encoders.i.blocks.layers.j`, `downs.i`→`encoders.i.down`,
+  `ups.i.0`→`decoders.i.upConv`, `norm{1,2}`→`norm{1,2}.norm`), conv-layout +
+  depthwise + beta/gamma NHWC transpose. Parity vs PyTorch: **fp32 ~2e-6, fp16
+  ~6.8e-4** (4.9 MB fp16, < 12 MB gate); 12 tests green. Final conversion is a
+  one-shot once B.3 lands a best checkpoint:
+  `python Scripts/convert_nafnet_to_mlx.py -i runs/nafnet-b3/nafnet_best.pt
+  -o ../ForgeOptimizer/Sources/ForgeOptimizer/Resources/nafnet.safetensors
+  --dtype float16 --verify-parity`.
 - **Compression-gate validation** (§4 ≥35% @Balanced, VMAF≥90, ≥55% signage @Maximum) — **blocked on B.5** (can't validate on the v0.3 stub).
 - **SigLIP2 NR-IQA** training + integration (retires the v0.3 KADID non-commercial scorer).
 - **12-clip real-signage eval set** (IBM Think 26, local/proprietary — not committed): `Docs/Benchmarks/real-signage-eval-set.md`.
