@@ -1,6 +1,7 @@
 # Real-Signage Eval Set — IBM Think 26 (local, proprietary)
 
-**Status**: selection finalized 2026-05-29; materialization deferred to after the close-out items.
+**Status**: pairs delivered + Vimeo baseline measured 2026-05-30 (`IBM_Pairs/`, local).
+Forge-side eval pending B.3/B.4 (NAFNet) + an SR pass over these clips.
 **Owner**: Dustin / MVS Collective
 
 ## Purpose
@@ -60,23 +61,80 @@ runs ~7 fps at 4K output, so long clips are slow to benchmark; 15s is plenty).
 - **Vimeo pairs**: create a 1080p + 4K-optimized for each so the HD→4K product
   test and the compression comparison both have ground truth.
 
-## Measured so far (3 of the 12, shipped SRVGGNet-general, downscale÷4→SR×4)
+## Delivered pairs (2026-05-30) — `~/DEV_INT/IBM_Pairs/` (local, off-repo)
 
-| clip | VMAF |
-|---|---|
-| 06_text_promo | 97.84 |
-| 04_characters | 99.74 |
-| (IBMFlow motion-gfx, not in final 12) | 99.54 |
+Dustin paired each IBM **source master** with Vimeo-optimized output(s). Caveat:
+several of the originally-requested clips were *reformatted* versions (real
+content letterboxed onto a 4K canvas with black bars for the LED wall) — the
+**source** was provided instead (even when natively HD), which is correct for
+VMAF (no black-bar dilution). Consequence: only **6 of 15 sources are native
+4K**; the reformatted-only axes are HD/portrait-HD at source.
 
-Headline: the shipped playback SR holds **97.8–99.7 VMAF on real signage incl.
-text** → the PRD VMAF ≥ 90 gate is comfortably met on representative content, and
-**Phase F (text-aware SR) is lower-priority than planned** — base SR already
-reconstructs display text near-perfectly. (4K-output throughput ~7 fps reconfirms
-the #41 finding: 4K SR is not realtime.)
+- **5 full triplets** (4K source + Vimeo 1080p + Vimeo 2160p) — power the HD→4K
+  product test: `abacus` (3D), `ferrari` (sports-motion), `sevilla` (people),
+  `img3140` (4K camera), `layersb` (gradient).
+- `characters4k` is a 4K source with only an HD Vimeo pair (no 4K pair yet).
+- The rest are HD / portrait-HD sources with a same-res Vimeo HD output.
 
-## Materialize (when ready)
+**4K-coverage recommendation** (Dustin offered more): two additions would round
+out the HD→4K test's content diversity — (1) a Vimeo **4K** pair for the existing
+`characters4k` 4K source (instant character/illustration triplet), and (2) one
+**4K text** clip with both Vimeo pairs (text is the signage workhorse and has no
+4K triplet yet; also the Phase-F case). 5 triplets is a valid v1 without these.
 
-1. Copy the 12 into a gitignored local dir; trim the marked ones to ~15s.
-2. Create Vimeo 1080p + 4K-optimized pairs for each (Dustin).
-3. Build a local manifest (same schema as `Forge/Tests/Corpus/manifest.json`,
-   `category: "signage-real"`); run `forge-benchmark-runner --playback-backend all`.
+## Vimeo baseline — the parity bar (measured 2026-05-30, libvmaf, 15 s, fps=30)
+
+Per clip: VMAF of Vimeo's output vs the source. **Three distinct measurements**
+(detail in `IBM_Pairs/vimeo_baseline.csv`, local):
+
+**A. Vimeo 4K-optimized compression** — quality kept compressing the 4K master:
+
+| clip | src→Vimeo-4K | ratio | VMAF |
+|---|---|---|---|
+| img3140 (camera) | 429→189 MB | 2.3× | **81.4** |
+| ferrari (motion) | 310→94 MB | 3.3× | **84.8** |
+| sevilla (people) | 281→33 MB | 8.5× | **87.8** |
+| layersb (gradient) | 10.6→10.1 MB | ~1× | **95.7** |
+| abacus (3D) | 13.4→13.7 MB | — | **97.0** (source already small; no gain) |
+
+**B. Vimeo HD→4K bicubic — the SR product-test bar** (Vimeo HD upscaled to wall):
+img3140 **72.3**, ferrari **79.0**, sevilla **81.8**, layersb **88.0**,
+abacus **92.3**, characters4k **92.7**. *Forge SR must beat these.* The earlier
+SRVGGNet signage measurements (**97.8–99.7 VMAF**) sit far above this 72–93
+floor → the HD→4K "make HD look native-4K" story is a clear win on real content.
+
+**C. Vimeo HD same-res compression** (HD sources, 4–8×): 94–98 VMAF — honda 97.1,
+is_announce 97.2, keynote 96.8, think2027 96.6, architecture 95.8, ibmplay3d 97.6.
+
+**Read**: Vimeo's bar is content-dependent — **81–88 on hard photographic/motion**,
+**94–98 on motion-graphics/text**. That's the per-content target for the Forge
+optimizer's compression gate (#40, pending NAFNet), and the 72–93 column-B floor
+is what Forge SR already beats today.
+
+## Canonical 12 (mapped to delivered files)
+
+| axis | clip id | native res | triplet? |
+|---|---|---|---|
+| gradient | layersb | 2160×3840 | ✓ |
+| structure | architecture | 1920×1080 | HD |
+| particle | emergingforms | 1920×1080 | HD |
+| characters | characters4k | 3840×2160 | 4K src, HD pair |
+| 3d | abacus | 3840×2160 | ✓ |
+| text_promo | think2027 | 1080×1920 | HD |
+| dense_text | is_announce | 1080×1920 | HD |
+| logo | honda | 1080×1920 | HD |
+| sports_motion | ferrari | 3240×1920 | ✓ |
+| camera | img3140 | 3840×2160 | ✓ |
+| portrait_text | is_keynote | 1080×1920 | HD |
+| people | sevilla | 3240×1920 | ✓ |
+
+(Spares: `ibmplay3d`, `is_architecture`, `is_emergingforms`.)
+
+## Next (Forge side)
+
+1. SR pass over the 6 native-4K sources (downscale÷4→SR×4→VMAF vs master) and the
+   HD→4K test (Vimeo-HD→SR→VMAF vs master *and* vs Vimeo-4K) → fill a Forge column
+   next to the column-B bar above.
+2. After NAFNet (B.3→B.5): Forge optimize each clip, compare bitrate-at-equal-VMAF
+   vs the Vimeo column-A/C numbers → the §4 compression gate (#40) on real signage.
+3. Local manifest lives in `IBM_Pairs/` (off-repo); only this spec is committed.
