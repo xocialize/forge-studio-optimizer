@@ -21,7 +21,21 @@ let package = Package(
                 .product(name: "FormatBridge", package: "FormatBridge"),
             ],
             resources: [
-                .copy("Resources"),
+                // Per-file .copy (NOT .copy("Resources")) so each lands at the
+                // bundle resource ROOT — the code resolves them via
+                // Bundle.module.url(forResource:withExtension:) with no
+                // subdirectory. .copy("Resources") nests them under
+                // Resources/Resources/ (esp. under xcodebuild's bundle layout),
+                // breaking every lookup. .process() is avoided because it
+                // compiles/mangles the .mlpackage directories.
+                .copy("Resources/efrlfn_x2.safetensors"),
+                .copy("Resources/efrlfn_x4.safetensors"),
+                .copy("Resources/realesr_anime_x4.safetensors"),
+                .copy("Resources/realesr_general_wdn_x4.safetensors"),
+                .copy("Resources/realesr_general_x4.safetensors"),
+                .copy("Resources/realesrgan_x2.mlpackage"),
+                .copy("Resources/realesrgan_x4.mlpackage"),
+                .copy("Resources/MODELS.md"),
             ],
             linkerSettings: [
                 .linkedFramework("CoreML"),

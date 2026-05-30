@@ -111,6 +111,36 @@ is_announce 97.2, keynote 96.8, think2027 96.6, architecture 95.8, ibmplay3d 97.
 optimizer's compression gate (#40, pending NAFNet), and the 72–93 column-B floor
 is what Forge SR already beats today.
 
+## Forge SR — measured 2026-05-30 (SRVGGNet-general x4, downscale÷4→SR×4 vs master)
+
+Ran the 6 native-4K masters through the playback SR (trimmed 15 s, xcodebuild
+binary — see ADR-0011). VMAF vs the master, beside the Vimeo HD→4K bicubic bar:
+
+| clip | **Forge SR VMAF** | Vimeo HD→4K bicubic | Δ | SR fps @4K |
+|---|---|---|---|---|
+| abacus (3D) | **99.83** | 92.3 | +7.5 | 5.1 |
+| characters | **99.83** | 92.7 | +7.1 | 5.8 |
+| ferrari (motion) | **96.00** | 79.0 | +17.0 | 9.0 |
+| img3140 (camera) | **97.81** | 72.3 | +25.5 | 6.7 |
+| layersb (gradient) | **99.21** | 88.0 | +11.2 | 6.7 |
+| sevilla (people) | **98.97** | 81.8 | +17.2 | 9.1 |
+| **mean** | **98.6** | 84.4 | **+14.3** | 6.7 |
+
+**Read**: Forge SR holds **98.6 mean VMAF** on real signage (confirms + extends
+the earlier 3-clip 97.8–99.7), far above the bicubic HD→4K floor — biggest gains
+on hard photographic/motion (img3140 +25.5, sevilla +17.2, ferrari +17.0). PRD
+VMAF≥90 is met on every clip. 4K-output throughput 5–9 fps reconfirms 4K SR is
+not realtime (ADR-0009).
+
+**Methodology caveat (not yet strictly apples-to-apples)**: Forge SR here
+reconstructs from a *clean* ÷4 bicubic downscale; the Vimeo column-B bar upscales
+Vimeo's *compressed* HD encode. The gap conflates (a) SR vs bicubic and (b) clean
+LR vs Vimeo-HD. The strictly-controlled HD→4K product test — feed Vimeo's *actual*
+HD file → Forge SR → VMAF vs master, vs Vimeo-HD→bicubic on the same input — is
+the clean follow-up (needs the runner to accept an external LR, or a small Swift
+harness; current runner synthesizes the LR by downscaling the source).
+Report: `Tests/Corpus/signage-real/signage-sr-report.json` (local).
+
 ## Canonical 12 (mapped to delivered files)
 
 | axis | clip id | native res | triplet? |

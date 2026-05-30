@@ -3,6 +3,7 @@ build/
 DerivedData/
 xcuserdata/
 .build/
+.xcode-build/
 *.metallib
 
 # macOS
@@ -33,3 +34,6 @@ __pycache__/
 
 # Local agent/editor config
 .claude/
+
+# Proprietary real-signage eval set (IBM Think 26) — local only
+Tests/Corpus/signage-real/

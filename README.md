@@ -29,8 +29,10 @@ is a future extraction.
 # FFmpegXC static libs (first time, or on a fresh clone — they're gitignored)
 cd Packages/FFmpegXC && ./build.sh
 
-# Benchmark harness
-cd Packages/ForgeOptimizer && swift build -c release --product forge-benchmark-runner
+# Benchmark harness — MUST be xcodebuild (compiles MLX's default.metallib;
+# `swift build` produces a binary that can't run MLX). See ADR-0011.
+cd Packages/ForgeOptimizer && xcodebuild build -scheme forge-benchmark-runner \
+    -configuration Release -destination 'platform=macOS' -derivedDataPath .xcode-build
 
 # Materialize the corpus (needs Homebrew ffmpeg-full for drawtext + libvmaf)
 cd Tests/Corpus && ./scripts/fetch_corpus.sh

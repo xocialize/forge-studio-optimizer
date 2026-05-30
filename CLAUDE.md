@@ -35,18 +35,25 @@ ForgeOptimizer ──→ ForgeUpscaler ──→ FormatBridge ──→ FFmpegXC
 # FFmpegXC static libs (fresh clone — gitignored)
 cd Packages/FFmpegXC && ./build.sh
 
-# Quality stack (resolves mlx-swift on first build — slow; run detached if it may sleep)
-cd Packages/ForgeOptimizer && swift build -c release --product forge-benchmark-runner
+# ⚠️ ANY runnable MLX-inference binary MUST be built with xcodebuild, NOT
+# `swift build`. swift build compiles the Swift but never builds mlx-swift's
+# Metal kernels into default.metallib → the binary fails at runtime with
+# "Failed to load the default metallib". xcodebuild compiles the metallib
+# (into mlx-swift_Cmlx.bundle, sibling to the binary) and bundles per-package
+# resources (model weights) correctly. swift build is fine ONLY for non-MLX
+# compile checks. (See ADR-0011.)
+cd Packages/ForgeOptimizer && xcodebuild build -scheme forge-benchmark-runner \
+    -configuration Release -destination 'platform=macOS' -derivedDataPath .xcode-build
+RUNNER=.xcode-build/Build/Products/Release/forge-benchmark-runner
 
 # CLI tests (Xcode needed for MLX-Metal suites: NAFNetTests, EfRLFNTests, LiteFlowNetTests)
-cd Packages/ForgeOptimizer && swift test --filter BenchmarkTests
-cd Packages/ForgeUpscaler  && swift test --filter ExportTierTests
+xcodebuild test -scheme ForgeOptimizer-Package -destination 'platform=macOS'
 
 # Corpus (Homebrew ffmpeg-full for drawtext + libvmaf)
 cd Tests/Corpus && ./scripts/fetch_corpus.sh
 
 # Benchmark
-.build/release/forge-benchmark-runner --corpus ../../Tests/Corpus/manifest.json \
+$RUNNER --corpus ../../Tests/Corpus/manifest.json \
     --upscaler-pass-only --playback-backend all --playback-scale 4 --output report.json
 ```
 
