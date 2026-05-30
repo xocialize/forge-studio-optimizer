@@ -221,7 +221,8 @@ public actor BenchmarkSuite {
     public func runPlaybackBackendPass(
         backend: BenchmarkRunner.PlaybackBackendID,
         scale: Int = 4,
-        clipID: String
+        clipID: String,
+        externalLRDir: URL? = nil
     ) async throws -> UpscalerRun {
         guard let clip = corpus.clips.first(where: { $0.id == clipID }) else {
             let outputRes = "0x0"
@@ -240,7 +241,9 @@ public actor BenchmarkSuite {
 
         let run: UpscalerRun
         if let runner = runner {
-            run = await runner.runUpscalerPass(backend: backend, scale: scale, clip: clip)
+            let externalLR = externalLRDir?.appendingPathComponent("\(clipID).mp4")
+            run = await runner.runUpscalerPass(
+                backend: backend, scale: scale, clip: clip, externalLR: externalLR)
         } else {
             let outputRes = BenchmarkRunner.scaleResolution(clip.resolution, factor: scale)
             run = UpscalerRun(

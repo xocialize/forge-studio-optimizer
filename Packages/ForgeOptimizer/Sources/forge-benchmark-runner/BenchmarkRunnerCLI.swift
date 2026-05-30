@@ -71,6 +71,11 @@ struct RunnerOptions {
     /// Skip optimizer-pass runs entirely. Useful for the C.4 A/B itself,
     /// which only needs the playback-backend numbers.
     var upscalerPassOnly: Bool
+    /// External-LR mode (HD→master product test). When set, each clip's SR
+    /// input is `<dir>/<clipID>.mp4` (e.g. a real Vimeo HD encode) instead of a
+    /// clean ÷scale downscale; the clip is the HR reference. Only affects the
+    /// playback-backend pass.
+    var externalLRDir: URL?
 }
 
 enum RunnerError: Error, CustomStringConvertible {
@@ -102,6 +107,7 @@ func parseArgs(_ argv: [String]) throws -> RunnerOptions {
     var playbackBackends: [BenchmarkRunner.PlaybackBackendID] = []
     var playbackScale: Int = 4
     var upscalerPassOnly = false
+    var externalLRDir: URL?
 
     var i = 1
     while i < argv.count {
@@ -174,6 +180,12 @@ func parseArgs(_ argv: [String]) throws -> RunnerOptions {
         case "--upscaler-pass-only":
             upscalerPassOnly = true
             i += 1
+        case "--external-lr-dir":
+            guard i + 1 < argv.count else {
+                throw RunnerError.missingRequired("--external-lr-dir")
+            }
+            externalLRDir = URL(fileURLWithPath: argv[i + 1])
+            i += 2
         default:
             throw RunnerError.unknownFlag(arg)
         }
@@ -200,7 +212,8 @@ func parseArgs(_ argv: [String]) throws -> RunnerOptions {
         tiers: tiers,
         playbackBackends: playbackBackends,
         playbackScale: playbackScale,
-        upscalerPassOnly: upscalerPassOnly
+        upscalerPassOnly: upscalerPassOnly,
+        externalLRDir: externalLRDir
     )
 }
 
@@ -266,6 +279,11 @@ func printUsage() {
       --upscaler-pass-only       Skip optimizer-pass runs; only A/B the
                                  playback backends. Useful for the C.4
                                  A/B itself. Requires --playback-backend.
+      --external-lr-dir <dir>    HD→master product test: use <dir>/<clipID>.mp4
+                                 (a real HD encode) as the SR input instead of a
+                                 clean ÷scale downscale. The clip is the HR
+                                 reference; SR output is downscaled to the
+                                 clip's resolution before VMAF.
 
     Dispatch matrix:
       (no --playback-backend)         optimizer + legacy --tiers passes
@@ -409,7 +427,8 @@ func run(_ opts: RunnerOptions) async throws {
                 let run = try await suite.runPlaybackBackendPass(
                     backend: backend,
                     scale: opts.playbackScale,
-                    clipID: clip.id
+                    clipID: clip.id,
+                    externalLRDir: opts.externalLRDir
                 )
                 switch run.status {
                 case .success:

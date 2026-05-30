@@ -132,14 +132,37 @@ on hard photographic/motion (img3140 +25.5, sevilla +17.2, ferrari +17.0). PRD
 VMAF≥90 is met on every clip. 4K-output throughput 5–9 fps reconfirms 4K SR is
 not realtime (ADR-0009).
 
-**Methodology caveat (not yet strictly apples-to-apples)**: Forge SR here
-reconstructs from a *clean* ÷4 bicubic downscale; the Vimeo column-B bar upscales
-Vimeo's *compressed* HD encode. The gap conflates (a) SR vs bicubic and (b) clean
-LR vs Vimeo-HD. The strictly-controlled HD→4K product test — feed Vimeo's *actual*
-HD file → Forge SR → VMAF vs master, vs Vimeo-HD→bicubic on the same input — is
-the clean follow-up (needs the runner to accept an external LR, or a small Swift
-harness; current runner synthesizes the LR by downscaling the source).
-Report: `Tests/Corpus/signage-real/signage-sr-report.json` (local).
+(The above reconstructs from a *clean* ÷4 downscale. The strictly-controlled
+HD→4K product test below removes that caveat.)
+
+### Controlled HD→4K product test (measured 2026-05-30)
+
+The clean apples-to-apples: feed Vimeo's *actual* compressed HD → Forge SR ×4 →
+downscale to master res → VMAF vs master, against Vimeo-HD→bicubic on the
+**identical** input. (Runner gained an `--external-lr-dir` mode for this — ADR-0011
+build, ADR note; SR output 8K → 1.2–1.4 fps.)
+
+| clip | **Forge SR (Vimeo-HD)** | Vimeo-HD bicubic | Δ |
+|---|---|---|---|
+| abacus | **99.84** | 92.31 | +7.5 |
+| characters | **99.83** | 92.73 | +7.1 |
+| ferrari | **99.28** | 79.04 | +20.2 |
+| img3140 | **93.48** | 72.30 | +21.2 |
+| layersb | **99.58** | 87.95 | +11.6 |
+| sevilla | **99.76** | 81.75 | +18.0 |
+| **mean** | **98.63** | 84.35 | **+14.3** |
+
+**Read**: on the *same* Vimeo-HD input, Forge SR beats bicubic by **+14.3 mean
+VMAF** — the controlled number nearly matches the indicative one (+14.28). Two
+findings: (1) SR-on-Vimeo-HD (98.63) ≈ SR-on-clean-÷4 (98.6) → SRVGGNet absorbs
+Vimeo's compression well; it even *exceeds* the clean-LR run on ferrari/sevilla/
+layersb because Vimeo-HD (÷2 from master) carries more detail than a ÷4 clean
+downscale. (2) Lone soft spot: img3140 (93.5 vs clean 97.8) — real 4K camera
+footage is where Vimeo's HD compression bites hardest. **Conclusion**: the entry
+"Forge makes Vimeo's HD look native-4K" claim is verified on real IBM signage,
+strictly controlled.
+Reports (local): `signage-sr-report.json` (clean-LR), `signage-hd4k-report.json`
+(controlled).
 
 ## Canonical 12 (mapped to delivered files)
 

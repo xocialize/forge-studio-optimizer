@@ -135,6 +135,54 @@ public struct BenchmarkRunner: Sendable {
         return (lrURL, lrW, lrH)
     }
 
+    /// Probe a video's pixel dimensions via ffprobe (sibling of ffmpegFullPath).
+    /// Used by the external-LR upscaler mode to size a real HD source whose
+    /// dimensions aren't HR/scale.
+    func probeVideoDimensions(_ url: URL) -> (w: Int, h: Int)? {
+        let ffprobe = URL(fileURLWithPath: ffmpegFullPath)
+            .deletingLastPathComponent().appendingPathComponent("ffprobe").path
+        guard FileManager.default.fileExists(atPath: ffprobe) else { return nil }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: ffprobe)
+        p.arguments = [
+            "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=width,height",
+            "-of", "csv=p=0:s=x", url.path,
+        ]
+        let out = Pipe(); p.standardOutput = out; p.standardError = Pipe()
+        do { try p.run() } catch { return nil }
+        p.waitUntilExit()
+        guard p.terminationStatus == 0 else { return nil }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        guard let s = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) else { return nil }
+        let parts = s.split(separator: "x")
+        guard parts.count == 2, let w = Int(parts[0]), let h = Int(parts[1]) else { return nil }
+        return (w, h)
+    }
+
+    /// Re-encode `src` scaled to `toW`×`toH` (bicubic, crf 12, video-only) at
+    /// `dst`. Used to bring the external-LR SR output back to master resolution
+    /// before VMAF.
+    func scaleVideo(_ src: URL, toW: Int, toH: Int, dst: URL) throws {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: ffmpegFullPath)
+        p.arguments = [
+            "-nostdin", "-y", "-loglevel", "error",
+            "-i", src.path,
+            "-vf", "scale=\(toW):\(toH):flags=bicubic",
+            "-c:v", "libx264", "-crf", "12", "-pix_fmt", "yuv420p", "-an",
+            dst.path,
+        ]
+        let errPipe = Pipe(); p.standardError = errPipe
+        try p.run(); p.waitUntilExit()
+        guard p.terminationStatus == 0, FileManager.default.fileExists(atPath: dst.path) else {
+            let log = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            throw BenchmarkRunnerError.encoderConfigure(
+                "scaleVideo failed (exit \(p.terminationStatus)): \(log.suffix(300))")
+        }
+    }
+
     // MARK: - Optimizer pass
 
     /// Drive one clip × one level through the legacy chain and synthesize
@@ -435,10 +483,17 @@ public struct BenchmarkRunner: Sendable {
     /// `UpscalerRun` carries the tier identifier (`tier.name`) so the
     /// C.4 A/B JSON can attribute each row to the backend that produced
     /// it.
+    /// - Parameter externalLR: when set, the SR input is this file (e.g. a real
+    ///   Vimeo HD encode) instead of a clean ÷scale downscale of the clip. The
+    ///   clip is then treated purely as the HR reference: the SR output
+    ///   (lr×scale) is downscaled to the clip's master resolution and VMAF'd
+    ///   against the clip. This is the controlled HD→master product test
+    ///   ("does Forge SR of a real HD source beat bicubic on the 4K wall?").
     public func runUpscalerPass(
         backend: PlaybackBackendID,
         scale: Int = 4,
-        clip: CorpusClip
+        clip: CorpusClip,
+        externalLR: URL? = nil
     ) async -> UpscalerRun {
         let inputRes = clip.resolution
         let outputRes = Self.scaleResolution(inputRes, factor: scale)
@@ -507,26 +562,50 @@ public struct BenchmarkRunner: Sendable {
                 backend: backendLabel
             )
         }
-        // Full-reference SR benchmark: downscale the clip ÷scale to make the
-        // LR input; the model upscales THAT back toward the original, which
-        // is the VMAF ground truth. (width,height) is the HR ground-truth
-        // resolution; the SR input/output are LR and LR×scale ≈ HR.
+        // LR input. Default (full-reference SR benchmark): downscale the clip
+        // ÷scale; the model upscales THAT back toward the original (VMAF ground
+        // truth). External-LR mode: use the provided real HD encode directly
+        // (its native dims, NOT clip/scale) — the clip stays the HR reference.
         let lrInfo: (url: URL, lrW: Int, lrH: Int)
-        do {
-            lrInfo = try makeDownscaledClip(
-                source: clipURL, clipID: clip.id, factor: scale,
-                srcW: width, srcH: height
-            )
-        } catch {
-            return UpscalerRun(
-                clipID: clip.id,
-                inputResolution: inputRes,
-                outputResolution: outputRes,
-                scaleFactor: scale,
-                status: .failed,
-                failureReason: "LR downscale failed: \(error)",
-                backend: backendLabel
-            )
+        let externalLRMode = externalLR != nil
+        if let externalLR {
+            guard fm.fileExists(atPath: externalLR.path) else {
+                return UpscalerRun(
+                    clipID: clip.id, inputResolution: inputRes,
+                    outputResolution: outputRes, scaleFactor: scale,
+                    status: .failed,
+                    failureReason: "external LR not found: \(externalLR.path)",
+                    backend: backendLabel
+                )
+            }
+            guard let dims = probeVideoDimensions(externalLR) else {
+                return UpscalerRun(
+                    clipID: clip.id, inputResolution: inputRes,
+                    outputResolution: outputRes, scaleFactor: scale,
+                    status: .failed,
+                    failureReason: "could not probe external LR dimensions: \(externalLR.lastPathComponent)",
+                    backend: backendLabel
+                )
+            }
+            // Keep even for the encoder; the model takes the frames as decoded.
+            lrInfo = (externalLR, dims.w / 2 * 2, dims.h / 2 * 2)
+        } else {
+            do {
+                lrInfo = try makeDownscaledClip(
+                    source: clipURL, clipID: clip.id, factor: scale,
+                    srcW: width, srcH: height
+                )
+            } catch {
+                return UpscalerRun(
+                    clipID: clip.id,
+                    inputResolution: inputRes,
+                    outputResolution: outputRes,
+                    scaleFactor: scale,
+                    status: .failed,
+                    failureReason: "LR downscale failed: \(error)",
+                    backend: backendLabel
+                )
+            }
         }
         let srInputURL = lrInfo.url
         let lrResolution = "\(lrInfo.lrW)x\(lrInfo.lrH)"
@@ -701,10 +780,26 @@ public struct BenchmarkRunner: Sendable {
         var vmafScore: Double? = nil
         if computeVMAF, FileManager.default.fileExists(atPath: outputURL.path) {
             let qm = QualityMeasure()
+            // External-LR mode: the SR output is (real-HD × scale), larger than
+            // the master. Downscale it to the master resolution so VMAF is a
+            // clean same-res compare against the HR reference (the wall res),
+            // not a scale2ref'd compare at the oversized SR resolution.
+            var testURL = outputURL
+            if externalLRMode {
+                let atMaster = tempDir.appendingPathComponent("\(clip.id)-atmaster.mp4")
+                do {
+                    try scaleVideo(outputURL, toW: width, toH: height, dst: atMaster)
+                    testURL = atMaster
+                } catch {
+                    if stagePartial == nil {
+                        stagePartial = "downscale-to-master failed: \(error)"
+                    }
+                }
+            }
             do {
                 vmafScore = try await qm.vmaf(
-                    referenceURL: clipURL,    // original HR = ground truth
-                    testURL: outputURL,       // SR output ≈ HR
+                    referenceURL: clipURL,    // master HR = ground truth
+                    testURL: testURL,         // SR output (at master res in external mode)
                     ffmpegPath: ffmpegFullPath
                 )
             } catch {
