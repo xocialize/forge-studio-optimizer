@@ -33,18 +33,27 @@ log() { echo "[$(date '+%H:%M:%S')] $*"; }
 source "$RIG/.venv/bin/activate"
 mkdir -p "$HQ" "$RIG/data" "$RUN"
 
-# ── Stage 1: DIV2K HQ sources (resumable) ──────────────────────────────────
-if [[ "$(find "$HQ" -name '*.png' 2>/dev/null | wc -l | tr -d ' ')" -lt 700 ]]; then
+# ── Stage 1: HQ sources (resumable) ────────────────────────────────────────
+# Default source is the locally-extracted IBM signage frames (domain-matched,
+# on disk, no slow download). Set USE_DIV2K=1 to fall back to the general DIV2K
+# baseline instead. A clip count >= MIN_HQ means "already populated → skip".
+MIN_HQ="${MIN_HQ:-50}"
+HQ_COUNT="$(find "$HQ" -name '*.png' 2>/dev/null | wc -l | tr -d ' ')"
+if [[ "$HQ_COUNT" -ge "$MIN_HQ" ]]; then
+  log "Stage 1: HQ sources present ($HQ_COUNT frames) — skip"
+elif [[ "${USE_DIV2K:-0}" == "1" ]]; then
   log "Stage 1: fetching DIV2K (~3.3 GB, resumable)…"
   curl -C - -fSL --retry 5 --retry-delay 10 "$DIV2K_URL" -o "$ZIP"
   log "unzipping…"
   unzip -q -o "$ZIP" -d "$HQ.tmp"
-  # DIV2K zips to DIV2K_train_HR/*.png — flatten into $HQ
   find "$HQ.tmp" -name '*.png' -exec mv -f {} "$HQ/" \;
   rm -rf "$HQ.tmp"
   log "DIV2K ready: $(find "$HQ" -name '*.png' | wc -l | tr -d ' ') images"
 else
-  log "Stage 1: HQ sources present ($(find "$HQ" -name '*.png' | wc -l | tr -d ' ') images) — skip"
+  log "Stage 1: only $HQ_COUNT HQ frames (< $MIN_HQ). Populate them first, e.g.:"
+  log "  ./Scripts/extract_hq_frames.sh data/ibm_hq_masters.txt $HQ 0.75"
+  log "  (or set USE_DIV2K=1 to download the DIV2K baseline)"
+  exit 1
 fi
 
 # ── Stage 2: multi-degradation corpus (resumable) ──────────────────────────
