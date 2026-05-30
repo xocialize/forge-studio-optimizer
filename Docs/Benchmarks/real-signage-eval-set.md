@@ -70,11 +70,12 @@ content letterboxed onto a 4K canvas with black bars for the LED wall) — the
 VMAF (no black-bar dilution). Consequence: only **6 of 15 sources are native
 4K**; the reformatted-only axes are HD/portrait-HD at source.
 
-- **6 full triplets** (4K source + Vimeo 1080p + Vimeo 2160p) — power the HD→4K
+- **7 full triplets** (4K source + Vimeo 1080p + Vimeo 2160p) — power the HD→4K
   product test: `abacus` (3D), `characters` (illustration), `ferrari`
   (sports-motion), `sevilla` (people), `img3140` (4K camera), `layersb`
-  (gradient). [`characters` 4K Vimeo pair added 2026-05-30 — one of the two
-  recommended 4K additions; the other (a 4K text clip) is still open.]
+  (gradient), `smarter` (text). [Both recommended 4K additions delivered
+  2026-05-30 — `characters` 4K pair + the `smarter` text clip; coverage now
+  spans every SR/compression axis.]
 - The rest are HD / portrait-HD sources with a same-res Vimeo HD output.
 
 **4K-coverage recommendation** (Dustin offered more): two additions would round
@@ -98,6 +99,7 @@ Per clip: VMAF of Vimeo's output vs the source. **Three distinct measurements**
 | layersb (gradient) | 10.6→10.1 MB | ~1× | **95.7** |
 | abacus (3D) | 13.4→13.7 MB | — | **97.0** (source already small; no gain) |
 | characters (illustration) | 16→8 MB | 2.0× | **98.05** (4K Vimeo pair added 2026-05-30) |
+| smarter (text) | 22→1.7 MB | 12.9× | **98.53** (highest ratio — flat-color text) |
 
 **B. Vimeo HD→4K bicubic — the SR product-test bar** (Vimeo HD upscaled to wall):
 img3140 **72.3**, ferrari **79.0**, sevilla **81.8**, layersb **88.0**,
@@ -126,7 +128,8 @@ binary — see ADR-0011). VMAF vs the master, beside the Vimeo HD→4K bicubic b
 | img3140 (camera) | **97.81** | 72.3 | +25.5 | 6.7 |
 | layersb (gradient) | **99.21** | 88.0 | +11.2 | 6.7 |
 | sevilla (people) | **98.97** | 81.8 | +17.2 | 9.1 |
-| **mean** | **98.6** | 84.4 | **+14.3** | 6.7 |
+| smarter (text) | **94.47** | 93.5 | +1.0 | 8.5 |
+| **mean (7)** | **98.0** | 85.7 | **+12.4** | 7.0 |
 
 **Read**: Forge SR holds **98.6 mean VMAF** on real signage (confirms + extends
 the earlier 3-clip 97.8–99.7), far above the bicubic HD→4K floor — biggest gains
@@ -152,7 +155,17 @@ build, ADR note; SR output 8K → 1.2–1.4 fps.)
 | img3140 | **93.48** | 72.30 | +21.2 |
 | layersb | **99.58** | 87.95 | +11.6 |
 | sevilla | **99.76** | 81.75 | +18.0 |
-| **mean** | **98.63** | 84.35 | **+14.3** |
+| smarter (text) | **98.65** | 93.47 | +5.2 |
+| **mean (7)** | **98.63** | 85.65 | **+13.0** |
+
+**Text-clip note** (`smarter`, added 2026-05-30): SR of Vimeo's 940 KB HD text =
+**98.65**, which ≈ Vimeo's own 1.7 MB 4K encode (col-A 98.53) — Forge reconstructs
+native-4K text quality from the HD source. The +5.2 margin over bicubic is the
+smallest in the set *because* bicubic is already strong on flat-color text (93.5,
+vs 72–82 on photographic); SR still wins and hits 4K-parity. (Clean-÷4 SR scores
+only 94.47 here — the ÷4 downscale destroys thin strokes; Vimeo-HD's ÷2 preserves
+them, which is why the controlled HD-input number is far higher. Text is genuinely
+resolution-sensitive.)
 
 **Read**: on the *same* Vimeo-HD input, Forge SR beats bicubic by **+14.3 mean
 VMAF** — the controlled number nearly matches the indicative one (+14.28). Two
