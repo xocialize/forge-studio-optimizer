@@ -55,12 +55,13 @@ cd Tests/Corpus && ./scripts/fetch_corpus.sh
 | # | Subject | Status |
 |---|---|---|
 | 0001–0002 | Refresh kickoff; dev-vs-runtime ffmpeg LGPL split | Accepted |
-| 0003 | NAFNet sizing (width=24, [1,1,1,1] default, ~1.4M params) | Accepted |
+| 0003 | NAFNet sizing (width=24, [1,1,1,1] default, **2.54M params** — verified vs Swift port; the "~1.4M" prose was an under-estimate) | Accepted |
 | 0005 | SigLIP2 lazy-download (~400 MB) | Accepted |
 | 0006 | EfRLFN adopted provisionally | Accepted (default **reversed** by 0008; throughput half dropped by 0009) |
 | 0007 | Real-ESRGAN CoreML export tier | Accepted |
 | 0008 | **Phase C.4 verdict — ship SRVGGNet-general, reject EfRLFN** (−26.8 VMAF) | Accepted |
 | 0009 | **Drop realtime requirements** (separate-project concern); 2 throughput gates removed | Accepted |
+| 0010 | **NAFNet B.3 training data** — domain IBM signage frames (not DIV2K); proprietary handling (frames/corpus never committed, only weights ship) | Accepted |
 
 Benchmark report: `Docs/Benchmarks/benchmark-c4-ab-v2-e06ff85.json`. Real-signage eval spec: `Docs/Benchmarks/real-signage-eval-set.md`.
 
@@ -76,7 +77,16 @@ Benchmark report: `Docs/Benchmarks/benchmark-c4-ab-v2-e06ff85.json`. Real-signag
 
 ## Open work (relocated from the Forge close-out)
 
-- **NAFNet training track (B.3→B.5)**: pipeline ready + restart-friendly (`ForgeTraining/TRAINING.md`). Needs DIV2K → resumable corpus gen → `./Scripts/train_nafnet.sh start` (detached, auto-resume) → B.4 convert → B.5 wire (replaces the v0.3 256² stubs) → unblocks the compression gates.
+- **NAFNet training track (B.3→B.5)**: B.3 **RUNNING** (ADR-0010). HQ source =
+  local IBM signage frames (1130 frames from 23 masters), corpus = 100k balanced
+  degraded pairs (~25% each noise/HEVC/AV1/MPEG-2), NAFNet 2.54M on MPS @
+  ~3.3 it/s (~25 h for 300k steps, auto-resume). Detached + restart-friendly:
+  re-run `./Scripts/run_b3_pipeline.sh` to resume any interrupted stage
+  (corpus `--resume`, training resumes from `ckpt_latest.pt`). DIV2K is now
+  opt-in (`USE_DIV2K=1`). Proprietary frames/corpus live under gitignored
+  `data/` — never committed; only weights ship. Next: B.4 convert (PyTorch→MLX)
+  → B.5 wire (replaces v0.3 256² stubs) → unblocks the #40 compression gates.
+  Runbook: `ForgeTraining/TRAINING.md`.
 - **Compression-gate validation** (§4 ≥35% @Balanced, VMAF≥90, ≥55% signage @Maximum) — **blocked on B.5** (can't validate on the v0.3 stub).
 - **SigLIP2 NR-IQA** training + integration (retires the v0.3 KADID non-commercial scorer).
 - **12-clip real-signage eval set** (IBM Think 26, local/proprietary — not committed): `Docs/Benchmarks/real-signage-eval-set.md`.
