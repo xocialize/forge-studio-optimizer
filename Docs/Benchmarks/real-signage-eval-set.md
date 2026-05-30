@@ -70,10 +70,11 @@ content letterboxed onto a 4K canvas with black bars for the LED wall) — the
 VMAF (no black-bar dilution). Consequence: only **6 of 15 sources are native
 4K**; the reformatted-only axes are HD/portrait-HD at source.
 
-- **5 full triplets** (4K source + Vimeo 1080p + Vimeo 2160p) — power the HD→4K
-  product test: `abacus` (3D), `ferrari` (sports-motion), `sevilla` (people),
-  `img3140` (4K camera), `layersb` (gradient).
-- `characters4k` is a 4K source with only an HD Vimeo pair (no 4K pair yet).
+- **6 full triplets** (4K source + Vimeo 1080p + Vimeo 2160p) — power the HD→4K
+  product test: `abacus` (3D), `characters` (illustration), `ferrari`
+  (sports-motion), `sevilla` (people), `img3140` (4K camera), `layersb`
+  (gradient). [`characters` 4K Vimeo pair added 2026-05-30 — one of the two
+  recommended 4K additions; the other (a 4K text clip) is still open.]
 - The rest are HD / portrait-HD sources with a same-res Vimeo HD output.
 
 **4K-coverage recommendation** (Dustin offered more): two additions would round
@@ -96,6 +97,7 @@ Per clip: VMAF of Vimeo's output vs the source. **Three distinct measurements**
 | sevilla (people) | 281→33 MB | 8.5× | **87.8** |
 | layersb (gradient) | 10.6→10.1 MB | ~1× | **95.7** |
 | abacus (3D) | 13.4→13.7 MB | — | **97.0** (source already small; no gain) |
+| characters (illustration) | 16→8 MB | 2.0× | **98.05** (4K Vimeo pair added 2026-05-30) |
 
 **B. Vimeo HD→4K bicubic — the SR product-test bar** (Vimeo HD upscaled to wall):
 img3140 **72.3**, ferrari **79.0**, sevilla **81.8**, layersb **88.0**,
