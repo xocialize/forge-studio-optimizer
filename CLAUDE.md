@@ -99,18 +99,16 @@ Benchmark report: `Docs/Benchmarks/benchmark-c4-ab-v2-e06ff85.json`. Real-signag
   training auto-resumes from `ckpt_latest.pt`; DIV2K opt-in `USE_DIV2K=1`).
   Proprietary frames/corpus stay under gitignored `data/` — only weights ship.
   Follow-ups: vectorize the BGRA↔RGB loop (perf); tiling for 4K on 16 GB (scale).
-- **Compression-gate validation (#40)** (§4 ≥35% @Balanced, VMAF≥90, ≥55% signage
-  @Maximum) — **IN PROGRESS, gate intent met** (ADR-0012). Built the CRF-vs-source
-  path (`runCompressionCRFPass`, `--crf` flag) since the fixed-bitrate harness
-  can't measure savings. First result (signage_smarter, CRF 23): **balanced 62.6%
-  savings @ VMAF 98.74** (off 64.6% @ 98.50) — clears ≥35%/≥90. **To flip the gate
-  `passed` flag green** (plumbing, not numbers): (1) skip `postProcessCompression`
-  when `--crf` set (it overwrites source-based savings with a vs-`.off` ≈0 value);
-  (2) corpus composition — `compression_balanced_min` reads the **general** subset
-  (needs the royalty-free corpus fetched: `Tests/Corpus/scripts/fetch_corpus.sh`)
-  and `compression_signage_max_min` reads **signage @ maximum**; empty subsets
-  should be N/A not fail. Then run the full subset+corpus. (CRF run ~1.5 fps at
-  4K — slow; perf follow-ups above still apply.)
+- **Compression #40 — CAPABILITY VALIDATED; gate definition needs revision
+  (ADR-0014, proposed).** Forge optimization is proven smaller-at-quality on
+  high-bitrate content: signage **62.6% @ VMAF 98.74** (CRF, ADR-0012) and **47%
+  smaller @ guaranteed VMAF≥95** (VMAF-targeted, VideoToolbox HEVC, Step 1). The
+  *original* §4 gate (fixed-CRF savings-vs-source, mixed corpus) is unmeasurable:
+  the royalty-free corpus spans 52 kbps→41 Mbps (screencapture clips already
+  ~50–100 kbps → no headroom → can't "save"), and the encoder pivoted to
+  VideoToolbox/VMAF-target (ADR-0013). Plumbing fixed + committed (postProcess
+  skip for `--crf`; empty-subset N/A). **Open: adopt ADR-0014 (VMAF-targeted gate
+  on high-bitrate sources) vs filter the corpus for the old gate — Dustin's call.**
 - **SigLIP2 NR-IQA** training + integration (retires the v0.3 KADID non-commercial scorer).
 - **12-clip real-signage eval set** (IBM Think 26, local/proprietary — not committed): `Docs/Benchmarks/real-signage-eval-set.md`.
 - Real-signage finding: shipped playback SR scored **97.8–99.7 VMAF** on real content incl. text → PRD VMAF≥90 met; Phase F (text-aware SR) deprioritized.
