@@ -129,6 +129,15 @@ VMAF** vs bicubic, **optimize 62.6% smaller @ 98.74 VMAF**. Immediate next:
 Build reminder: **xcodebuild** for runnable MLX (ADR-0011); `swift build` only
 compile-checks. ~6 build cycles/session is normal — budget for it.
 
+**Encoding strategy (analyzed 2026-05-31, no internet needed):** Vimeo ≈ per-title
+**x264 ~CRF 20** High@5.2, adaptive B-frames, ~2–3 s GOP, **no SR**
+(`Docs/Benchmarks/vimeo-method-analysis.md`). Forge's `--crf` path *is* this tool
+— **dial CRF to ~20–21** (we used 23) to match Vimeo's operating point on clean
+signage; beat it via NAFNet (degraded input) + HD→4K SR + AV1. **Deep-research
+request queued** (run onsite, web): `Docs/Research/deep-research-request-encoding-
+strategy.md` — content-adaptive/VMAF-targeted SOTA + restoration→compression (+
+Vimeo pipeline + AV1).
+
 ## Provenance
 
 Clean copy from `xocialize-code/Forge` (`feature/forge-2026-q2-refresh`), 2026-05-29.
