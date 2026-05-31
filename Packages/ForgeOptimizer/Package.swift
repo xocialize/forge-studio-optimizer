@@ -8,6 +8,7 @@ let package = Package(
         .library(name: "ForgeOptimizer", targets: ["ForgeOptimizer"]),
         .executable(name: "forge-benchmark-runner", targets: ["forge-benchmark-runner"]),
         .executable(name: "forge-gate-checker", targets: ["forge-gate-checker"]),
+        .executable(name: "forge-quality-target", targets: ["forge-quality-target"]),
     ],
     dependencies: [
         .package(url: "https://github.com/ml-explore/mlx-swift", "0.31.2" ..< "0.32.0"),
@@ -56,6 +57,14 @@ let package = Package(
             name: "forge-gate-checker",
             dependencies: ["ForgeOptimizer"],
             path: "Sources/forge-gate-checker"
+        ),
+        .executableTarget(
+            name: "forge-quality-target",
+            dependencies: [
+                "ForgeOptimizer",
+                .product(name: "FormatBridge", package: "FormatBridge"),
+            ],
+            path: "Sources/forge-quality-target"
         ),
         .testTarget(
             name: "ForgeOptimizerTests",
