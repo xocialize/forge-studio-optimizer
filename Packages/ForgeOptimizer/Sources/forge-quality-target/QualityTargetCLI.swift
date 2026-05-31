@@ -51,6 +51,9 @@ struct QualityTargetCLI {
         // decode → NAFNet restore → re-encode at a fixed quality.
         var restore: Bool = false
         var fixedQuality: Float = 0.6
+        // Per-shot mode (Step 2): shot-detect → per-shot VMAF-target → stitch,
+        // reported against a per-title encode of the same frames.
+        var perShot: Bool = false
     }
 
     enum CLIError: Error, CustomStringConvertible {
@@ -78,6 +81,10 @@ struct QualityTargetCLI {
     restore mode (degraded "bad file" input, no pristine reference):
       --restore              decode → NAFNet restore → re-encode (needs --out)
       --quality     <0..1>   fixed encode quality for restore (default 0.6)
+
+    per-shot mode (Step 2 — beats per-title):
+      --per-shot             shot-detect → per-shot VMAF-target → stitch (needs --out);
+                             reports savings vs a per-title encode of the same frames
     """
 
     static func parse() throws -> Options {
@@ -95,6 +102,7 @@ struct QualityTargetCLI {
             case "--out": o.keepOutput = it.next().map { URL(fileURLWithPath: $0) }
             case "--restore": o.restore = true
             case "--quality": if let v = it.next().flatMap(Float.init) { o.fixedQuality = v }
+            case "--per-shot": o.perShot = true
             case "--help", "-h": print(usageText); exit(0)
             default: throw CLIError.usage("unknown argument: \(a)")
             }
@@ -109,6 +117,7 @@ struct QualityTargetCLI {
     static func run() async throws {
         let o = try parse()
         if o.restore { try await runRestore(o); return }
+        if o.perShot { try await runPerShot(o); return }
         let ffmpeg = FFmpegVMAFScorer.resolveFFmpeg()
 
         // 1. Probe the source.
@@ -134,18 +143,14 @@ struct QualityTargetCLI {
         let sampleSeconds = Double(frames.count) / fps
         log("sample   : \(frames.count) frames (\(fmt(sampleSeconds)) s)")
 
-        // 3. Lossless ffv1 reference built from the SAME decoded frames we feed
-        //    the encoder — so VMAF measures pure encode loss, with no cross-
-        //    pipeline frame-order or colour-range mismatch (an ffmpeg re-decode
-        //    of the source as reference scored a bogus ~76 even at max quality).
-        let w = CVPixelBufferGetWidth(frames[0])
-        let h = CVPixelBufferGetHeight(frames[0])
+        // 3. Lossless ffv1 reference: ffmpeg decodes the same source frames
+        //    (0 ..< count). Frame-index-aligned with our decode (framesync fix).
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("fqt-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmp) }
         let reference = tmp.appendingPathComponent("ref.mkv")
-        try buildReference(frames: frames, width: w, height: h, fps: fps,
+        try buildReference(source: o.input, startFrame: 0, count: frames.count,
                            to: reference, ffmpeg: ffmpeg)
 
         // 4. VMAF-targeted encode.
@@ -239,58 +244,181 @@ struct QualityTargetCLI {
         log("kept   : \(out.path)")
     }
 
-    // MARK: - ffmpeg reference
+    // MARK: - Per-shot (Step 2)
 
-    /// Lossless ffv1 reference piped from the in-memory NV12 sample frames, so
-    /// the reference and the distorted encode share identical source pixels.
-    static func buildReference(frames: [CVPixelBuffer], width w: Int, height h: Int,
-                               fps: Double, to out: URL, ffmpeg: String) throws {
-        guard CVPixelBufferGetPixelFormatType(frames[0]) == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
-                || CVPixelBufferGetPixelFormatType(frames[0]) == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange else {
-            throw CLIError.ffmpeg("expected NV12 frames for the reference, got "
-                + "\(CVPixelBufferGetPixelFormatType(frames[0]))")
+    /// Shot-detect → per-shot VMAF-targeted encode → stitch, compared to a
+    /// per-title encode of the same frames. Per-shot wins because an easy shot
+    /// can use a lower quality than a hard one while both clear the VMAF floor.
+    static func runPerShot(_ o: Options) async throws {
+        guard let out = o.keepOutput else { throw CLIError.usage("--per-shot requires --out") }
+        let ffmpeg = FFmpegVMAFScorer.resolveFFmpeg()
+        let info = try await FormatBridgeFactory.makeProbe().probe(url: o.input)
+        guard let vs = info.videoStreams.first else { throw CLIError.noVideoStream }
+        let fps = vs.frameRate > 0 ? vs.frameRate : 30.0
+        log("source : \(o.input.lastPathComponent)  \(vs.width)x\(vs.height) @ \(fmt(fps)) fps")
+        log("target : VMAF ≥ \(fmt(o.targetVMAF)) (slack \(fmt(o.slack)))  codec \(o.codec)")
+
+        // Decode a bounded NV12 sample (deep-copied — pools recycle).
+        let decoder = FormatBridgeFactory.makeDecoder()
+        try await decoder.open(url: o.input)
+        var frames: [CVPixelBuffer] = []
+        while frames.count < o.maxFrames, let f = try await decoder.decodeNextVideoFrame() {
+            frames.append(copy(f.pixelBuffer))
         }
+        decoder.close()
+        guard !frames.isEmpty else { throw CLIError.decodeEmpty }
+
+        // Shot detection over per-frame luma histograms.
+        let sigs = frames.map { lumaHistogram($0) }
+        let shots = ShotDetector().shots(signatures: sigs)
+        log("shots  : \(shots.count) detected over \(frames.count) frames "
+            + "(\(shots.map { String($0.count) }.joined(separator: "/")))")
+
+        let scorer = FFmpegVMAFScorer(ffmpegPath: ffmpeg)
+        let search = QualityTargetSearch(targetScore: o.targetVMAF, slack: o.slack, maxProbes: o.maxProbes)
+        let encoder = FormatBridgeFactory.makeQualityTargetEncoder(scorer: scorer, search: search)
+        let settings = VideoEncoderSettings(codec: o.codec, resolution: .original, frameRate: .target(fps))
+
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("fqt-ps-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        // Per-shot search + encode.
+        let clock = Date()
+        var shotFiles: [URL] = []
+        var perShotBytes = 0
+        for (i, r) in shots.enumerated() {
+            let shotFrames = Array(frames[r])
+            let ref = tmp.appendingPathComponent("ref-\(i).mkv")
+            try buildReference(source: o.input, startFrame: r.lowerBound, count: r.count,
+                               to: ref, ffmpeg: ffmpeg)
+            let shotOut = tmp.appendingPathComponent("shot-\(i).mp4")
+            let res = try await encoder.encode(frames: shotFrames, reference: ref,
+                                               output: shotOut, settings: settings)
+            shotFiles.append(shotOut)
+            perShotBytes += fileSize(shotOut)
+            log("  shot \(i): \(r.count) frames  q=\(fmt(Double(res.quality), 3))  "
+                + "VMAF=\(fmt(res.achievedScore))  \(fmt(Double(fileSize(shotOut)) / 1e6)) MB")
+        }
+        try concat(shotFiles, to: out, ffmpeg: ffmpeg)
+        let perShotSecs = Date().timeIntervalSince(clock)
+
+        // Per-title baseline: one search/quality for the whole clip.
+        let fullRef = tmp.appendingPathComponent("ref-full.mkv")
+        try buildReference(source: o.input, startFrame: 0, count: frames.count,
+                           to: fullRef, ffmpeg: ffmpeg)
+        let ptOut = tmp.appendingPathComponent("pertitle.mp4")
+        let ptRes = try await encoder.encode(frames: frames, reference: fullRef,
+                                             output: ptOut, settings: settings)
+        let ptBytes = fileSize(ptOut)
+        let stitchedBytes = fileSize(out)
+
+        // Report.
+        let secs = Double(frames.count) / fps
+        let br = { (b: Int) in fmt(Double(b) * 8 / max(secs, 1e-6) / 1e6) }
+        log("")
+        log("── per-shot vs per-title ───────────────────────────────")
+        log("per-title : q=\(fmt(Double(ptRes.quality), 3))  VMAF=\(fmt(ptRes.achievedScore))  "
+            + "\(fmt(Double(ptBytes) / 1e6)) MB  →  \(br(ptBytes)) Mbps")
+        log("per-shot  : \(shots.count) shots  \(fmt(Double(stitchedBytes) / 1e6)) MB  →  \(br(stitchedBytes)) Mbps "
+            + "(\(fmt(perShotSecs)) s)")
+        if ptBytes > 0 {
+            let win = (1.0 - Double(stitchedBytes) / Double(ptBytes)) * 100.0
+            log(String(format: "PER-SHOT WIN : %.1f%% smaller than per-title at the same VMAF floor", win))
+        }
+        log("kept     : \(out.path)")
+    }
+
+    /// Normalised luma histogram (NV12 Y-plane, sub-sampled) — the shot-detector
+    /// signature. `bins` mass sums to 1.
+    static func lumaHistogram(_ pb: CVPixelBuffer, bins: Int = 16) -> [Float] {
+        CVPixelBufferLockBaseAddress(pb, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(pb, .readOnly) }
+        var hist = [Float](repeating: 0, count: bins)
+        let planar = CVPixelBufferIsPlanar(pb)
+        let base = planar ? CVPixelBufferGetBaseAddressOfPlane(pb, 0) : CVPixelBufferGetBaseAddress(pb)
+        guard let base else { return hist }
+        let bpr = planar ? CVPixelBufferGetBytesPerRowOfPlane(pb, 0) : CVPixelBufferGetBytesPerRow(pb)
+        let w = planar ? CVPixelBufferGetWidthOfPlane(pb, 0) : CVPixelBufferGetWidth(pb)
+        let h = planar ? CVPixelBufferGetHeightOfPlane(pb, 0) : CVPixelBufferGetHeight(pb)
+        let p = base.assumingMemoryBound(to: UInt8.self)
+        let step = max(1, w / 128)
+        var count: Float = 0
+        var y = 0
+        while y < h {
+            let row = p + y * bpr
+            var x = 0
+            while x < w {
+                hist[min(bins - 1, Int(row[x]) * bins / 256)] += 1
+                count += 1
+                x += step
+            }
+            y += step
+        }
+        if count > 0 { for i in 0 ..< bins { hist[i] /= count } }
+        return hist
+    }
+
+    /// Stitch encoded shot files into one via the ffmpeg concat demuxer (-c copy).
+    static func concat(_ files: [URL], to out: URL, ffmpeg: String) throws {
+        let list = out.deletingLastPathComponent().appendingPathComponent("concat-\(UUID().uuidString).txt")
+        try files.map { "file '\($0.path)'" }.joined(separator: "\n").write(to: list, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: list) }
         try? FileManager.default.removeItem(at: out)
         let p = Process()
         p.executableURL = URL(fileURLWithPath: ffmpeg)
         p.arguments = ["-hide_banner", "-loglevel", "error", "-y",
-                       "-f", "rawvideo", "-pixel_format", "nv12",
-                       "-video_size", "\(w)x\(h)",
-                       "-framerate", String(format: "%.6f", fps),
-                       "-i", "pipe:0", "-an",
+                       "-f", "concat", "-safe", "0", "-i", list.path, "-c", "copy", out.path]
+        let err = Pipe(); p.standardError = err; p.standardOutput = FileHandle.nullDevice
+        try p.run(); p.waitUntilExit()
+        guard p.terminationStatus == 0, FileManager.default.fileExists(atPath: out.path) else {
+            let log = String(data: err.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            throw CLIError.ffmpeg("concat failed: \(log.suffix(400))")
+        }
+    }
+
+    // MARK: - ffmpeg reference
+
+    /// Lossless ffv1 VMAF reference: ffmpeg decodes the SOURCE frames
+    /// `[startFrame, startFrame+count)` directly, tagged BT.709 to match the
+    /// encoder's output.
+    ///
+    /// (History: an earlier version repacked our in-memory NV12 frames to
+    /// rawvideo and ffv1'd that, to dodge a cross-pipeline frame-order mismatch.
+    /// But the repack path corrupted the reference by ~6 VMAF points — our
+    /// encode measured 99.8 vs an *independent* ffmpeg reference but only ~94 vs
+    /// the repacked one. With the framesync fix in place (`settb=AVTB,setpts=N`
+    /// in `QualityMeasure.vmaf`), pairing is by frame index, so decoding the
+    /// source directly is both correct and simpler. Our FormatBridge-decoded
+    /// frames and ffmpeg's decode align frame-for-frame — verified at 99.8 VMAF.)
+    static func buildReference(source: URL, startFrame: Int, count: Int,
+                               to out: URL, ffmpeg: String) throws {
+        try? FileManager.default.removeItem(at: out)
+        // `trim` selects frames [start, end) by index — verified to pick the
+        // right source frames and align frame-for-frame with our encode (offset
+        // ranges score 99.9 vs the ground-truth slice). Do NOT add `setpts=N`
+        // here: it renumbers PTS to 0,1,2… in the source timebase, collapsing the
+        // near-zero gaps so the muxer drops all but ~2 frames. Frame alignment is
+        // handled at compare time by `QualityMeasure.vmaf`'s `settb=AVTB,setpts=N`.
+        let end = startFrame + count
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: ffmpeg)
+        p.arguments = ["-hide_banner", "-loglevel", "error", "-y",
+                       "-i", source.path, "-an",
+                       "-vf", "trim=start_frame=\(startFrame):end_frame=\(end)",
+                       "-color_primaries", "bt709", "-color_trc", "bt709",
+                       "-colorspace", "bt709", "-color_range", "tv",
                        "-c:v", "ffv1", out.path]
-        let inPipe = Pipe(), err = Pipe()
-        p.standardInput = inPipe
+        let err = Pipe()
         p.standardError = err
         p.standardOutput = FileHandle.nullDevice
         try p.run()
-        let fh = inPipe.fileHandleForWriting
-        for frame in frames { fh.write(repackNV12(frame, w, h)) }
-        try? fh.close()
         p.waitUntilExit()
         guard p.terminationStatus == 0, FileManager.default.fileExists(atPath: out.path) else {
             let log = String(data: err.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
             throw CLIError.ffmpeg("reference build failed: \(log.suffix(400))")
         }
-    }
-
-    /// Tightly repack an NV12 CVPixelBuffer (Y plane then interleaved CbCr) into
-    /// `pipe:0` rawvideo bytes, stripping any per-plane row padding.
-    static func repackNV12(_ pb: CVPixelBuffer, _ w: Int, _ h: Int) -> Data {
-        CVPixelBufferLockBaseAddress(pb, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(pb, .readOnly) }
-        var out = Data(capacity: w * h + w * (h / 2))
-        if let y = CVPixelBufferGetBaseAddressOfPlane(pb, 0) {
-            let bpr = CVPixelBufferGetBytesPerRowOfPlane(pb, 0)
-            let base = y.assumingMemoryBound(to: UInt8.self)
-            for row in 0 ..< h { out.append(base + row * bpr, count: w) }
-        }
-        if let c = CVPixelBufferGetBaseAddressOfPlane(pb, 1) {
-            let bpr = CVPixelBufferGetBytesPerRowOfPlane(pb, 1)
-            let base = c.assumingMemoryBound(to: UInt8.self)
-            for row in 0 ..< (h / 2) { out.append(base + row * bpr, count: w) }
-        }
-        return out
     }
 
     // MARK: - Helpers
