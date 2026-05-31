@@ -121,16 +121,20 @@ Benchmark report: `Docs/Benchmarks/benchmark-c4-ab-v2-e06ff85.json`. Real-signag
 NAFNet track **B.1→B.5 done + shipping** (trained 41.515 dB, converted, wired,
 tested). Entry-tier product story validated on real IBM signage: **SR HD→4K +13
 VMAF** vs bicubic, **optimize 62.6% smaller @ 98.74 VMAF**. Encoder strategy
-adopted (ADR-0013/0014) and **Step 0 shipped** (native VideoToolbox constant-
-quality encoder, test green). Roadmap (#48–54) — **Step 0 ✅**:
-1. **#49 Step 1 native** — drive `VideoToolboxEncoderImpl.constantQuality` from a
-   Swift VMAF-targeted search (sample-encode binary search). Prototype proves the
-   algorithm (`Tools/vmaf_target_search.py`, **47% @ VMAF≥95**); productize in
-   FormatBridge/runner. This is the shipping quality-targeted encode path + unblocks
-   the ADR-0014 gate (#54).
+adopted (ADR-0013/0014); **Step 0 shipped** (native VideoToolbox constant-quality
+encoder) and **Step 1 native core shipped** (all test-green). Roadmap (#48–54) —
+**Step 0 ✅, Step 1 core ✅**:
+1. **#49 Step 1** — native core DONE: `QualityTargetSearch` (sample-encode binary
+   search for the lowest quality clearing a VMAF floor) + `VideoToolboxQualityTarget`
+   `Encoder` (search ↔ Step-0 encoder) in FormatBridge, + `FFmpegVMAFScorer` (real
+   libvmaf seam) in the runner — compose via `makeQualityTargetEncoder(scorer:`
+   `search:)`. Prototype/strategy target: **47% @ VMAF≥95** (`Tools/vmaf_target_`
+   `search.py`). **Remaining**: a runner/CLI pass that streams real corpus clips
+   through it at scale (decode→search→final encode, bounded memory) + report savings
+   vs a flat-quality floor baseline — this *is* the #54 gate integration.
 2. **#50 Step 2** — per-shot VMAF-targeted (shot-detect → per-shot search → stitch);
-   corpus now has multi-shot clips to measure the win over per-title.
-3. **#54** — implement ADR-0014 gate (wire Step 0+1 into benchmark + high-bitrate
+   reuses the same search/scorer/encoder seams; corpus now has multi-shot clips.
+3. **#54** — implement ADR-0014 gate (the #49 runner pass above + high-bitrate
    corpus tag), then flip §4. **#51 Step 3** (IQA-gated NAFNet) + **#52 Step 4**
    (SVT-AV1 tier) + **#23/#15** remain on the model side.
 Build reminder: **xcodebuild** for runnable MLX (ADR-0011); `swift build` only
