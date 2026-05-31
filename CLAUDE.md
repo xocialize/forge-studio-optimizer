@@ -22,7 +22,7 @@ ForgeOptimizer ──→ ForgeUpscaler ──→ FormatBridge ──→ FFmpegXC
 
 | Package | Role |
 |---|---|
-| `Packages/ForgeOptimizer` | AI analysis + preprocessing: `Restoration/` (NAFNet — port done, weights pending B.3; v0.3 Legacy Denoiser/ArtifactRemover are **256²-resize STUBS**), `OpticalFlow/` (LiteFlowNet motion), `QualityRegressor/` (SigLIP2 IQA head, training pending), `ModelRegistry/` (actor + LicensePolicy + SPDX), `Benchmark/` (BenchmarkSuite + `forge-benchmark-runner` + `forge-gate-checker` + GateEvaluator + QualityMeasure), `PixelBufferBridge/` |
+| `Packages/ForgeOptimizer` | AI analysis + preprocessing: `Restoration/` (**NAFNet trained + wired** via `NAFNetProcessor`, B.5; v0.3 Legacy Denoiser/ArtifactRemover 256² stubs retained under `Legacy/` for the CoreML/registry path), `OpticalFlow/` (LiteFlowNet motion), `QualityRegressor/` (SigLIP2 IQA head, training pending), `ModelRegistry/` (actor + LicensePolicy + SPDX), `Benchmark/` (BenchmarkSuite + `forge-benchmark-runner` + `forge-gate-checker` + GateEvaluator + QualityMeasure), `PixelBufferBridge/` |
 | `Packages/ForgeUpscaler` | SR tiers: **playback = SRVGGNetCompact-general x4** (C.4 winner, ADR-0008); export = Real-ESRGAN CoreML (ADR-0007); preview = MetalFX. `MLXTileProcessor` (NV12→BGRA + tile/whole-frame), `PlaybackTier`/`PlaybackUpscaler`, `EfRLFN*` (rejected, retained), `Temporal/` |
 | `Packages/FormatBridge` | Video decode (FFmpeg) + encode (VideoToolbox). Self-contained copy of the shared Forge engine. |
 | `Packages/FFmpegXC` | Vendored LGPL-safe FFmpeg 7.1.1 static libs. `.a` files gitignored — `./build.sh` rebuilds. |
@@ -84,27 +84,21 @@ Benchmark report: `Docs/Benchmarks/benchmark-c4-ab-v2-e06ff85.json`. Real-signag
 
 ## Open work (relocated from the Forge close-out)
 
-- **NAFNet training track (B.3→B.5)**: B.3 **RUNNING** (ADR-0010). HQ source =
-  local IBM signage frames (1130 frames from 23 masters), corpus = 100k balanced
-  degraded pairs (~25% each noise/HEVC/AV1/MPEG-2), NAFNet 2.54M on MPS @
-  ~3.3 it/s (~25 h for 300k steps, auto-resume). Detached + restart-friendly:
-  re-run `./Scripts/run_b3_pipeline.sh` to resume any interrupted stage
-  (corpus `--resume`, training resumes from `ckpt_latest.pt`). DIV2K is now
-  opt-in (`USE_DIV2K=1`). Proprietary frames/corpus live under gitignored
-  `data/` — never committed; only weights ship. Next: B.4 convert (PyTorch→MLX)
-  → B.5 wire (replaces v0.3 256² stubs) → unblocks the #40 compression gates.
-  Runbook: `ForgeTraining/TRAINING.md`.
-- **B.4 converter — READY + validated** (`Scripts/convert_nafnet_to_mlx.py` +
-  MLX-Python oracle `Python/models/nafnet_mlx.py`). PyTorch→MLX key remap
-  (`encoders.i.j`→`encoders.i.blocks.layers.j`, `downs.i`→`encoders.i.down`,
-  `ups.i.0`→`decoders.i.upConv`, `norm{1,2}`→`norm{1,2}.norm`), conv-layout +
-  depthwise + beta/gamma NHWC transpose. Parity vs PyTorch: **fp32 ~2e-6, fp16
-  ~6.8e-4** (4.9 MB fp16, < 12 MB gate); 12 tests green. Final conversion is a
-  one-shot once B.3 lands a best checkpoint:
-  `python Scripts/convert_nafnet_to_mlx.py -i runs/nafnet-b3/nafnet_best.pt
-  -o ../ForgeOptimizer/Sources/ForgeOptimizer/Resources/nafnet.safetensors
-  --dtype float16 --verify-parity`.
-- **Compression-gate validation** (§4 ≥35% @Balanced, VMAF≥90, ≥55% signage @Maximum) — **blocked on B.5** (can't validate on the v0.3 stub).
+- **NAFNet track (B.1→B.5) — COMPLETE** (ADR-0010). Trained on local IBM signage
+  frames (1130 frames → 100k balanced noise/HEVC/AV1/MPEG-2 pairs), 300k steps,
+  **best val PSNR 41.515 dB**. Converted PyTorch→MLX (`convert_nafnet_to_mlx.py`
+  + oracle `nafnet_mlx.py`; parity fp32 ~2e-6 / fp16 3.35e-3 on real weights),
+  vendored `ForgeOptimizer/Resources/nafnet.safetensors` (4.9 MB fp16). Wired via
+  `NAFNetProcessor` (FrameProcessor; full-res, `ensureBGRA` NV12 fix); the
+  `PreprocessorFactory` non-`.off` levels now use NAFNet, replacing the v0.3
+  256² DnCNN+ARCNN stubs (kept under `Restoration/Legacy/`). xcodebuild test
+  green. Retrain/resume: `./Scripts/run_b3_pipeline.sh` (corpus `--resume`,
+  training auto-resumes from `ckpt_latest.pt`; DIV2K opt-in `USE_DIV2K=1`).
+  Proprietary frames/corpus stay under gitignored `data/` — only weights ship.
+  Follow-ups: vectorize the BGRA↔RGB loop (perf); tiling for 4K on 16 GB (scale).
+- **Compression-gate validation (#40)** (§4 ≥35% @Balanced, VMAF≥90, ≥55% signage
+  @Maximum) — **now UNBLOCKED** (B.5 landed). Run a full optimizer benchmark
+  (not `--upscaler-pass-only`) with the xcodebuild runner over the corpus.
 - **SigLIP2 NR-IQA** training + integration (retires the v0.3 KADID non-commercial scorer).
 - **12-clip real-signage eval set** (IBM Think 26, local/proprietary — not committed): `Docs/Benchmarks/real-signage-eval-set.md`.
 - Real-signage finding: shipped playback SR scored **97.8–99.7 VMAF** on real content incl. text → PRD VMAF≥90 met; Phase F (text-aware SR) deprioritized.
