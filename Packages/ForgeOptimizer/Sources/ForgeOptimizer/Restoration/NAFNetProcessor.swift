@@ -59,7 +59,12 @@ public final class NAFNetProcessor: FrameProcessor, @unchecked Sendable {
         guard let input = Self.rgbNHWC(from: bgra, width: width, height: height) else {
             return pixelBuffer
         }
-        let output = model(input)
+        // Run in fp16 end-to-end. The vendored weights are fp16; an fp32 input
+        // would force MLX to promote the entire forward to fp32 (≈2× slower,
+        // ≈2× peak memory — the latter matters for 4K on a 16 GB M1). fp16
+        // compute is plenty for an 8-bit-output restoration model (parity vs
+        // fp32 stays ~3e-3).
+        let output = model(input.asType(.float16))
         MLX.eval(output)
         guard let out = Self.pixelBuffer(fromRGBNHWC: output, width: width, height: height) else {
             return pixelBuffer

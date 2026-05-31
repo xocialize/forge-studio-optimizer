@@ -71,4 +71,27 @@ struct NAFNetProcessorTests {
         #expect(CVPixelBufferGetWidth(out) == 64)
         #expect(CVPixelBufferGetHeight(out) == 64)
     }
+
+    @Test("fp16 SCA pool is stable at video resolution (no NaN→uniform output)")
+    func largeResolutionStable() throws {
+        // 800×600 = 480k pixels: an fp16 global-average-pool accumulation
+        // overflows fp16 (~65504) → NaN → a uniform (all-255) frame. The fp32
+        // pool in SCA fixes it. This is the #40 regression the small-res tests
+        // missed. Assert the output carries real, varied content.
+        let processor = try NAFNetProcessor()
+        let output = processor.process(makeBGRA(width: 800, height: 600))
+        #expect(CVPixelBufferGetWidth(output) == 800)
+
+        CVPixelBufferLockBaseAddress(output, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(output, .readOnly) }
+        let p = CVPixelBufferGetBaseAddress(output)!.assumingMemoryBound(to: UInt8.self)
+        let bpr = CVPixelBufferGetBytesPerRow(output)
+        var distinctR = Set<UInt8>()
+        for k in 0 ..< 300 {
+            let x = (k * 37) % 800
+            let y = (k * 53) % 600
+            distinctR.insert(p[y * bpr + x * 4 + 2])   // R channel
+        }
+        #expect(distinctR.count > 3, "near-uniform output — fp16 SCA overflow regressed")
+    }
 }

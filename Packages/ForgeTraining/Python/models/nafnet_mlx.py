@@ -91,7 +91,10 @@ class SCA(nn.Module):
         self.conv = Conv2d(channels, channels, kernel_size=1, bias=True)
 
     def __call__(self, x: mx.array) -> mx.array:
-        pooled = mx.mean(x, axis=(1, 2), keepdims=True)  # [N,1,1,C]
+        # Pool in fp32: the H×W sum overflows fp16 (~65504) at video resolutions
+        # → NaN. Reduce in fp32, cast back. (No-op for fp32 inference; matches
+        # NAFNet.swift.) See #40.
+        pooled = mx.mean(x.astype(mx.float32), axis=(1, 2), keepdims=True).astype(x.dtype)
         return x * self.conv(pooled)
 
 

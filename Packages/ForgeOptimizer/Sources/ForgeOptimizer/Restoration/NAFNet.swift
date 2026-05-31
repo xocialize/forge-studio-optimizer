@@ -82,7 +82,11 @@ final class SCA: Module, @unchecked Sendable {
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
         // Global average pool to [B, 1, 1, C], 1×1 conv, broadcast-multiply with input.
-        let pooled = x.mean(axes: [1, 2], keepDims: true)
+        // Pool in fp32: the spatial mean sums H×W values, which overflows fp16's
+        // ~65504 ceiling in the intermediate accumulation at video resolutions
+        // (NaN output at ≥540×960, fine at 128² — only caught by the real 4K
+        // optimizer benchmark, #40). Reduce in fp32, then return to x's dtype.
+        let pooled = x.asType(.float32).mean(axes: [1, 2], keepDims: true).asType(x.dtype)
         let weights = conv(pooled)
         return x * weights
     }
