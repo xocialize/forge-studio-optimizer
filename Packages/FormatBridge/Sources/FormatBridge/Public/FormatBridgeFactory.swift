@@ -41,6 +41,15 @@ public enum FormatBridgeFactory {
         NativeEncoderImpl()
     }
 
+    /// Creates the constant-quality VideoToolbox encoder (ADR-0013 ship encoder)
+    /// — `VTCompressionSession` with the `kVTCompressionPropertyKey_Quality` knob
+    /// the VMAF-targeted search drives, muxed via AVAssetWriter passthrough.
+    /// Video-only. Set `VideoEncoderSettings.constantQuality` for an explicit
+    /// quality target.
+    public static func makeQualityEncoder() -> any VideoEncoding {
+        VideoToolboxEncoderImpl()
+    }
+
     /// Creates a conversion orchestrator that manages the full pipeline.
     ///
     /// - Parameter frameProcessor: Optional AI frame processor (e.g., ForgeOptimizer's `ModelChain`).
