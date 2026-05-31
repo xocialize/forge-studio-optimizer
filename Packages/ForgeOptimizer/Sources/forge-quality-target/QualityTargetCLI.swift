@@ -47,6 +47,10 @@ struct QualityTargetCLI {
         var maxProbes: Int = 8
         var slack: Double = 0.5
         var keepOutput: URL?
+        // Restore mode (degraded "bad file" input, no pristine reference):
+        // decode → NAFNet restore → re-encode at a fixed quality.
+        var restore: Bool = false
+        var fixedQuality: Float = 0.6
     }
 
     enum CLIError: Error, CustomStringConvertible {
@@ -70,6 +74,10 @@ struct QualityTargetCLI {
       --max-probes  <n>      sample-encode probe cap (default 8)
       --slack       <pts>    accept VMAF >= target - slack (default 0.5)
       --out         <path>   also keep the final targeted encode here
+
+    restore mode (degraded "bad file" input, no pristine reference):
+      --restore              decode → NAFNet restore → re-encode (needs --out)
+      --quality     <0..1>   fixed encode quality for restore (default 0.6)
     """
 
     static func parse() throws -> Options {
@@ -85,6 +93,8 @@ struct QualityTargetCLI {
             case "--max-probes": if let v = it.next().flatMap(Int.init) { o.maxProbes = v }
             case "--slack": if let v = it.next().flatMap(Double.init) { o.slack = v }
             case "--out": o.keepOutput = it.next().map { URL(fileURLWithPath: $0) }
+            case "--restore": o.restore = true
+            case "--quality": if let v = it.next().flatMap(Float.init) { o.fixedQuality = v }
             case "--help", "-h": print(usageText); exit(0)
             default: throw CLIError.usage("unknown argument: \(a)")
             }
@@ -98,6 +108,7 @@ struct QualityTargetCLI {
 
     static func run() async throws {
         let o = try parse()
+        if o.restore { try await runRestore(o); return }
         let ffmpeg = FFmpegVMAFScorer.resolveFFmpeg()
 
         // 1. Probe the source.
@@ -168,6 +179,64 @@ struct QualityTargetCLI {
                        savings, fmt(o.targetVMAF)))
         }
         if let keep = o.keepOutput { log("kept output    : \(keep.path)") }
+    }
+
+    // MARK: - Restore mode
+
+    /// Degraded "bad file" path: decode → NAFNet restore → re-encode at a fixed
+    /// quality. No pristine reference exists (the degraded file IS the input),
+    /// so there's no VMAF-vs-source here — the comparison is restoration /
+    /// perceptual (visual A/B on matched frames, NR-IQA, size). Streams one
+    /// frame at a time to keep 4K memory bounded.
+    static func runRestore(_ o: Options) async throws {
+        guard let out = o.keepOutput else { throw CLIError.usage("--restore requires --out") }
+        let info = try await FormatBridgeFactory.makeProbe().probe(url: o.input)
+        guard let vs = info.videoStreams.first else { throw CLIError.noVideoStream }
+        let fps = vs.frameRate > 0 ? vs.frameRate : 30.0
+        log("source : \(o.input.lastPathComponent)  \(vs.width)x\(vs.height) @ \(fmt(fps)) fps  "
+            + (vs.bitrate.map { "\(fmt(Double($0) / 1e6)) Mbps" } ?? "bitrate ?"))
+        log("restore: NAFNet → VideoToolbox \(o.codec) @ quality \(fmt(Double(o.fixedQuality), 2)), "
+            + "up to \(o.maxFrames) frames")
+
+        let nafnet = try NAFNetProcessor()
+        let encoder = FormatBridgeFactory.makeQualityEncoder()
+        let decoder = FormatBridgeFactory.makeDecoder()
+        try await decoder.open(url: o.input)
+
+        let timescale: Int32 = 600
+        let frameDur = CMTime(value: Int64(Double(timescale) / fps), timescale: timescale)
+        var i = 0
+        var configured = false
+        let clock = Date()
+        while i < o.maxFrames, let f = try await decoder.decodeNextVideoFrame() {
+            let restored = nafnet.process(f.pixelBuffer)
+            if !configured {
+                let w = CVPixelBufferGetWidth(restored), h = CVPixelBufferGetHeight(restored)
+                let settings = VideoEncoderSettings(codec: o.codec,
+                                                    resolution: .custom(width: w, height: h),
+                                                    frameRate: .target(fps),
+                                                    constantQuality: o.fixedQuality)
+                try encoder.configure(output: out, videoSettings: settings, audioSettings: nil)
+                configured = true
+            }
+            try encoder.appendVideoFrame(restored,
+                                         at: CMTimeMultiply(frameDur, multiplier: Int32(i)),
+                                         duration: frameDur)
+            i += 1
+            if i % 20 == 0 { log("  …restored \(i) frames") }
+        }
+        decoder.close()
+        guard configured else { throw CLIError.decodeEmpty }
+        try await encoder.finish()
+
+        let dt = Date().timeIntervalSince(clock)
+        let outBytes = fileSize(out)
+        let secs = Double(i) / fps
+        log("")
+        log("── restored ───────────────────────────────────────────")
+        log("frames : \(i) in \(fmt(dt)) s  (\(fmt(Double(i) / max(dt, 1e-6))) fps)")
+        log("output : \(fmt(Double(outBytes) / 1e6)) MB  →  \(fmt(Double(outBytes) * 8 / max(secs, 1e-6) / 1e6)) Mbps")
+        log("kept   : \(out.path)")
     }
 
     // MARK: - ffmpeg reference
