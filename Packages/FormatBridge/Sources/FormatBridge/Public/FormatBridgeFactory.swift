@@ -50,6 +50,18 @@ public enum FormatBridgeFactory {
         VideoToolboxEncoderImpl()
     }
 
+    /// Creates the VMAF-targeted constant-quality encoder (Step 1, ADR-0013/0014)
+    /// — runs a sample-encode binary search over the VideoToolbox quality knob to
+    /// hit a perceptual floor, then performs the final encode at that quality.
+    /// The `scorer` injects the perceptual metric (real VMAF lives in the
+    /// runner/CLI; FormatBridge does not link `libvmaf`).
+    public static func makeQualityTargetEncoder(
+        scorer: any QualityScoring,
+        search: QualityTargetSearch
+    ) -> VideoToolboxQualityTargetEncoder {
+        VideoToolboxQualityTargetEncoder(scorer: scorer, search: search)
+    }
+
     /// Creates a conversion orchestrator that manages the full pipeline.
     ///
     /// - Parameter frameProcessor: Optional AI frame processor (e.g., ForgeOptimizer's `ModelChain`).

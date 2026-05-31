@@ -112,7 +112,10 @@ final class VideoToolboxEncoderImpl: VideoEncoding, @unchecked Sendable {
             writer.add(input)
             guard writer.startWriting() else {
                 if appendError == nil {
-                    appendError = EncoderError.encode("startWriting failed: \(writer.error?.localizedDescription ?? "?")")
+                    let ns = writer.error as NSError?
+                    appendError = EncoderError.encode("startWriting failed: "
+                        + "\(writer.error?.localizedDescription ?? "?") "
+                        + "[\(ns?.domain ?? "?") \(ns?.code ?? 0)] status=\(writer.status.rawValue)")
                 }
                 lock.unlock(); return
             }
