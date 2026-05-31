@@ -125,42 +125,56 @@ Benchmark report: `Docs/Benchmarks/benchmark-c4-ab-v2-e06ff85.json`. Real-signag
 - **12-clip real-signage eval set** (IBM Think 26, local/proprietary — not committed): `Docs/Benchmarks/real-signage-eval-set.md`.
 - Real-signage finding: shipped playback SR scored **97.8–99.7 VMAF** on real content incl. text → PRD VMAF≥90 met; Phase F (text-aware SR) deprioritized.
 
-### Resume next (2026-05-31 handoff)
+### Resume next (2026-05-31 handoff — end of a big session)
 
-NAFNet track **B.1→B.5 done + shipping** (trained 41.515 dB, converted, wired,
-tested). Entry-tier product story validated on real IBM signage: **SR HD→4K +13
-VMAF** vs bicubic, **optimize 62.6% smaller @ 98.74 VMAF**. Encoder strategy
-adopted (ADR-0013/0014); **Step 0 shipped** (native VideoToolbox constant-quality
-encoder) and **Step 1 native core shipped** (all test-green). Roadmap (#48–54) —
-**Step 0 ✅, Step 1 core ✅**:
-1. **#49 Step 1** — native + VALIDATED END-TO-END. Core: `QualityTargetSearch`
-   (sample-encode binary search for the lowest quality clearing a VMAF floor) +
-   `VideoToolboxQualityTargetEncoder` (search ↔ Step-0 encoder) in FormatBridge, +
-   `FFmpegVMAFScorer` (real libvmaf seam) in the runner — compose via
-   `makeQualityTargetEncoder(scorer:search:)`. The **`forge-quality-target` CLI**
-   runs the whole path on a real clip (decode→search→encode, bounded sample) and on
-   `general-animation-01.mp4` (1080p, 5.23 Mbps) gave **63.0% smaller @ VMAF≥95**
-   / **79.2% @ VMAF≥90** (`Docs/Benchmarks/step1-native-validation.md`). Found+fixed
-   a real VMAF framesync-timebase bug along the way (see Conventions). **Remaining
-   for full #49**: streaming full-clip final encode for long 4K masters (sample is
-   bounded today). **#54** then runs it across the high-bitrate corpus vs a flat
-   floor baseline for the honest cross-corpus savings number + flips the gate.
-2. **#50 Step 2** — per-shot VMAF-targeted (shot-detect → per-shot search → stitch);
-   reuses the same search/scorer/encoder seams; corpus now has multi-shot clips.
-3. **#54** — implement ADR-0014 gate (the #49 runner pass above + high-bitrate
-   corpus tag), then flip §4. **#51 Step 3** (IQA-gated NAFNet) + **#52 Step 4**
-   (SVT-AV1 tier) + **#23/#15** remain on the model side.
+The **entire VideoToolbox compression story is built, validated, and gated.** NAFNet
+track B.1→B.5 ships (trained, wired). Encoder roadmap (research Step 0→6):
+
+- **Step 0 ✅** native VideoToolbox constant-quality encoder (`VideoToolboxEncoderImpl`).
+- **Step 1 ✅** VMAF-targeted search (`QualityTargetSearch` + `VideoToolboxQualityTarget`
+  `Encoder` + `FFmpegVMAFScorer`, compose via `makeQualityTargetEncoder`). Validated
+  end-to-end via `forge-quality-target`: **63% @ VMAF≥95 / 79% @ VMAF≥90** vs source,
+  cross-checked against independent ffmpeg (`step1-native-validation.md`).
+- **Step 2 ✅ deferred (ADR-0015)** — `ShotDetector` built; capped per-shot only TIES
+  per-title (~0%) on VT constant-quality (already per-frame adaptive). `--per-shot`
+  ships `min(per-shot, per-title)`, never regresses. Revisit only with fixed-CRF x264 (#53).
+- **#54 ✅ ADR-0014 gate** — `Tools/quality_target_gate.py` (uses `forge-quality-target`
+  `--fixed/--json`): per-title-targeted **16.6% smaller than the flat floor baseline** on
+  the ≥8 Mbps subset → **PASS** at the calibrated ≥15% (the 63% is vs-source; 16.6% is the
+  source-independent CI guard). Fixed-CRF gates retired from GateEvaluator (v1.1, 3 gates).
+- **Step 3 (#51) — architecture ✅, BLOCKED on #56.** IQA-gate seam built
+  (`NoReferenceQualityScoring` + `GatedRestorationProcessor` + opt-in `makeGatedChain` +
+  `BlockinessQualityScorer` baseline + `forge-quality-target --score`). Validated the cheap
+  blockiness heuristic is UNFIT (scored the worst Snowflake 4K@1.9 bad file 0.98 "clean" →
+  would skip; our signage degrades as ringing, not grid-blocking). Default stays
+  unconditional NAFNet. (`step3-iqa-gate-findings.md`)
+
+**▶ CRITICAL-PATH NEXT — #56: train the SigLIP2 NR-IQA head** (head is ported #27 but
+untrained; KADID scorer is non-commercial). **Needs a commercial-usable IQA dataset →
+internet to acquire** (the reason we paused). Unblocks Step 3 gate (#51) AND ImageBridge's
+no-reference still metric — one model, two consumers. Then default-on the gated chain +
+re-validate on real signage incl. 045.
+
+Other remaining: **#52** Step 4 (SVT-AV1 opt-in tier — needs SVT-AV1 vendored, internet),
+#53 (conditional x264 / convex-hull), #15 (PocketDVDNet).
+
+**Bugs caught this session by validating on REAL content (the discipline that paid off
+3×):** VMAF reference corruption (#55 — Step-1 numbers were measured against a broken
+reference; trim-not-setpts fix, cross-checked 98.55==98.55), VideoToolbox untagged-output /
+BT.601-vs-709 colour drift (pin 709), stale pre-relocation manifest path in `locateManifest`,
+and the blockiness-heuristic mis-gate. All in Conventions.
+
 Build reminder: **xcodebuild** for runnable MLX (ADR-0011); `swift build` only
-compile-checks; FormatBridge VideoToolbox tests run under `swift test` (system
-framework). ~6 build cycles/session is normal — budget for it.
+compile-checks; FormatBridge/forge-quality-target VMAF+per-shot paths run under `swift
+build` (no MLX), but `--restore` (NAFNet) needs xcodebuild. ~6 build cycles/session normal.
 
-**Encoding strategy (deep research delivered):** Vimeo ≈ per-title **x264 ~CRF 20**
-High@5.2, adaptive B-frames, ~2–3 s GOP, **no SR**
-(`Docs/Benchmarks/vimeo-method-analysis.md`). Research report adopted →
-`Docs/Research/forge-studio-encoding-strategy-v2.md`: ship **VideoToolbox HEVC +
-VMAF-targeted per-title/per-shot** rate control (ADR-0013), beat Vimeo via NAFNet
-(degraded input) + HD→4K SR + opt-in AV1. The Step 0→6 roadmap above is the
-productization of that report.
+**Encoding strategy (research adopted, `forge-studio-encoding-strategy-v2.md`):** Vimeo ≈
+per-title x264 ~CRF 20, no SR. Forge ships **VideoToolbox HEVC + VMAF-targeted per-title**
+(per-shot doesn't pay on VT), beats Vimeo via NAFNet (degraded input) + HD→4K SR + opt-in AV1.
+
+**ImageBridge** (post-video static-image sibling package) noted in memory
+(`imagebridge-seed.md`): reuses our optimization unchanged; flags (ADR-number placeholders,
+alpha=separate instances, tiling, licensing) captured. Do NOT let it derail video.
 
 ## Provenance
 
