@@ -28,7 +28,19 @@ let package = Package(
                 "Benchmark/README.md",
             ],
             resources: [
-                .copy("Resources"),
+                // Per-file .copy (NOT .copy("Resources")) so each lands at the
+                // bundle resource ROOT, where CoreMLProcessor / NAFNetProcessor
+                // resolve them via Bundle.module.url(forResource:). See ADR-0011
+                // (.copy("Resources") double-nests under Resources/Resources/;
+                // .process() would mangle the .mlpackage directories).
+                .copy("Resources/arcnn.mlpackage"),
+                .copy("Resources/dncnn_color.mlpackage"),
+                .copy("Resources/dncnn_gray.mlpackage"),
+                .copy("Resources/espcn_x2.mlpackage"),
+                .copy("Resources/espcn_x4.mlpackage"),
+                .copy("Resources/quality_regressor.mlpackage"),
+                .copy("Resources/nafnet.safetensors"),
+                .copy("Resources/MODELS.md"),
             ],
             linkerSettings: [
                 .linkedFramework("CoreML"),

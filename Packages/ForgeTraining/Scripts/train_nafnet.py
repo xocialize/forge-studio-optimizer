@@ -294,7 +294,14 @@ def main(argv=None) -> int:
                 save_ckpt(step, best_psnr)
                 log(f"checkpoint saved @ step {step}"
                     + (f" — stopping on {_STOP['why']}" if _STOP["flag"] else " — target reached"))
-                return 0
+                # Hard-exit. Returning here is mid-iteration over the DataLoader,
+                # so its worker processes are never joined and torch/MPS's atexit
+                # hangs on the join (seen post-300k as an idle SN process that
+                # never releases). Everything is checkpointed, so os._exit is the
+                # clean, reliable termination. Flush logs first.
+                import os as _os, sys as _sys
+                _sys.stdout.flush(); _sys.stderr.flush()
+                _os._exit(0)
 
     save_ckpt(step, best_psnr)
     log(f"done @ step {step}, best PSNR={best_psnr:.3f} dB")

@@ -3,40 +3,31 @@ import Foundation
 
 /// Builds a FrameProcessor chain based on OptimizationLevel.
 ///
-/// Maps Forge PRD v0.3 optimization levels to CoreML model chains:
-///   .off       → nil (no preprocessing)
-///   .light     → [Denoiser]
-///   .balanced  → [Denoiser]  (SoftROIFilter is GPU-based, added later)
-///   .aggressive → [Denoiser, ArtifactRemover]
-///   .maximum   → [Denoiser, ArtifactRemover]  (ESPCN handled separately)
+/// Phase B.5 (Task #14): NAFNet — the trained MLX restoration model — replaces
+/// the v0.3 256²-resize `Denoiser` + `ArtifactRemover` stub chain. One
+/// fully-convolutional model handles both Gaussian-noise denoising and
+/// HEVC/AV1/MPEG-2 compression-artifact removal at the frame's native
+/// resolution. Restoration is uniform across every non-`.off` level (NAFNet has
+/// no intensity knob); the levels differ on the *encode* side (quality preset),
+/// not the restoration model.
+///
+///   .off                                   → nil (no preprocessing)
+///   .light / .balanced / .aggressive / .maximum → [NAFNetProcessor]
+///
+/// The v0.3 stubs remain under `Restoration/Legacy/` for reference / the
+/// CoreML ModelRegistry path; they are simply no longer wired here.
 public enum PreprocessorFactory {
 
     /// Create a FrameProcessor chain for the given optimization level.
-    /// Returns nil for `.off`.
+    /// Returns nil for `.off`. Throws if the NAFNet weights can't be loaded.
     public static func makeChain(for level: OptimizationLevel) throws -> (any FrameProcessor)? {
         switch level {
         case .off:
             return nil
 
-        case .light:
-            let denoiser = try Denoiser()
-            return ModelChain([denoiser])
-
-        case .balanced:
-            let denoiser = try Denoiser()
-            // SoftROIFilter (GPU CIColorKernel) will be added here when implemented
-            return ModelChain([denoiser])
-
-        case .aggressive:
-            let denoiser = try Denoiser()
-            let arcnn = try ArtifactRemover()
-            return ModelChain([denoiser, arcnn])
-
-        case .maximum:
-            let denoiser = try Denoiser()
-            let arcnn = try ArtifactRemover()
-            // ESPCN super-resolution is applied separately (changes resolution)
-            return ModelChain([denoiser, arcnn])
+        case .light, .balanced, .aggressive, .maximum:
+            let nafnet = try NAFNetProcessor()
+            return ModelChain([nafnet])
         }
     }
 }
