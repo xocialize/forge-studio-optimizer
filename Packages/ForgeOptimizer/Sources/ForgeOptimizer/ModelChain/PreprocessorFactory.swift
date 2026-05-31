@@ -30,4 +30,29 @@ public enum PreprocessorFactory {
             return ModelChain([nafnet])
         }
     }
+
+    /// Like `makeChain`, but **IQA-gated** (Step 3, #51): NAFNet runs only on
+    /// frames a no-reference scorer judges degraded; clean frames pass through,
+    /// skipping the (tiled-at-4K) inference. Opt-in for now — the default ship
+    /// path stays unconditional until the SigLIP2 NR-IQA head (#23) replaces the
+    /// interim blockiness heuristic and the gate is validated on real content.
+    ///
+    /// - Parameters:
+    ///   - scorer: no-reference quality signal (default: `BlockinessQualityScorer`,
+    ///     license-clean; swap in `SigLIP2`-backed scoring when trained).
+    ///   - threshold: run restoration when quality `< threshold` (default 0.6).
+    public static func makeGatedChain(
+        for level: OptimizationLevel,
+        scorer: any NoReferenceQualityScoring = BlockinessQualityScorer(),
+        threshold: Float = 0.6
+    ) throws -> (any FrameProcessor)? {
+        switch level {
+        case .off:
+            return nil
+        case .light, .balanced, .aggressive, .maximum:
+            let nafnet = try NAFNetProcessor()
+            let gated = GatedRestorationProcessor(restoration: nafnet, scorer: scorer, threshold: threshold)
+            return ModelChain([gated])
+        }
+    }
 }

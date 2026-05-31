@@ -59,6 +59,10 @@ struct QualityTargetCLI {
         var fixed: Float? = nil
         // Emit a machine-readable JSON result line (for corpus harnesses / the gate).
         var json: Bool = false
+        // Score-only mode: decode + run the no-reference blockiness scorer (the
+        // Step-3 IQA gate signal); print mean/min/max quality. For threshold
+        // calibration on real content.
+        var score: Bool = false
     }
 
     enum CLIError: Error, CustomStringConvertible {
@@ -108,6 +112,7 @@ struct QualityTargetCLI {
             case "--restore": o.restore = true
             case "--quality": if let v = it.next().flatMap(Float.init) { o.fixedQuality = v }
             case "--per-shot": o.perShot = true
+            case "--score": o.score = true
             case "--fixed": o.fixed = it.next().flatMap(Float.init)
             case "--json": o.json = true
             case "--help", "-h": print(usageText); exit(0)
@@ -125,6 +130,7 @@ struct QualityTargetCLI {
         let o = try parse()
         if o.restore { try await runRestore(o); return }
         if o.perShot { try await runPerShot(o); return }
+        if o.score { try await runScore(o); return }
         let ffmpeg = FFmpegVMAFScorer.resolveFFmpeg()
 
         // 1. Probe the source.
@@ -259,6 +265,32 @@ struct QualityTargetCLI {
         log("frames : \(i) in \(fmt(dt)) s  (\(fmt(Double(i) / max(dt, 1e-6))) fps)")
         log("output : \(fmt(Double(outBytes) / 1e6)) MB  →  \(fmt(Double(outBytes) * 8 / max(secs, 1e-6) / 1e6)) Mbps")
         log("kept   : \(out.path)")
+    }
+
+    // MARK: - Score-only (Step 3 gate signal)
+
+    /// Decode + run the no-reference blockiness scorer; print mean/min/max and the
+    /// gate decision. For calibrating the IQA-gate threshold on real content.
+    static func runScore(_ o: Options) async throws {
+        let info = try await FormatBridgeFactory.makeProbe().probe(url: o.input)
+        guard let vs = info.videoStreams.first else { throw CLIError.noVideoStream }
+        let scorer = BlockinessQualityScorer()
+        let decoder = FormatBridgeFactory.makeDecoder()
+        try await decoder.open(url: o.input)
+        var qs: [Float] = []
+        var i = 0
+        while i < o.maxFrames, let f = try await decoder.decodeNextVideoFrame() {
+            qs.append(scorer.quality(f.pixelBuffer)); i += 1
+        }
+        decoder.close()
+        guard !qs.isEmpty else { throw CLIError.decodeEmpty }
+        let mean = qs.reduce(0, +) / Float(qs.count)
+        let threshold: Float = 0.6
+        log("source : \(o.input.lastPathComponent)  \(vs.width)x\(vs.height)  "
+            + (vs.bitrate.map { "\(fmt(Double($0) / 1e6)) Mbps" } ?? "? Mbps"))
+        log("quality: mean \(fmt(Double(mean), 3))  min \(fmt(Double(qs.min()!), 3))  "
+            + "max \(fmt(Double(qs.max()!), 3))   (\(qs.count) frames)")
+        log("gate   : \(mean < threshold ? "RESTORE (degraded)" : "skip (clean)")  @ threshold \(fmt(Double(threshold), 2))")
     }
 
     // MARK: - Per-shot (Step 2)
