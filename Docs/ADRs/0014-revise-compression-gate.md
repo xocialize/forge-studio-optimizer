@@ -1,7 +1,7 @@
 # ADR 0014 — Revise the §4 compression gate (proposed)
 
 **Date**: 2026-05-31
-**Status**: Proposed (awaiting confirmation)
+**Status**: Accepted (2026-05-31 — Dustin: "go with the recommended approach; metrics can always be re-generated")
 **Supersedes**: the §4 fixed-CRF compression gate; refines [ADR-0012](0012-compression-savings-crf-vs-source.md)
 **Driven by**: #40 finish + `Docs/Research/forge-studio-encoding-strategy-v2.md` + ADR-0013
 

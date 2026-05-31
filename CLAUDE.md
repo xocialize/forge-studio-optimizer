@@ -24,7 +24,7 @@ ForgeOptimizer ──→ ForgeUpscaler ──→ FormatBridge ──→ FFmpegXC
 |---|---|
 | `Packages/ForgeOptimizer` | AI analysis + preprocessing: `Restoration/` (**NAFNet trained + wired** via `NAFNetProcessor`, B.5; v0.3 Legacy Denoiser/ArtifactRemover 256² stubs retained under `Legacy/` for the CoreML/registry path), `OpticalFlow/` (LiteFlowNet motion), `QualityRegressor/` (SigLIP2 IQA head, training pending), `ModelRegistry/` (actor + LicensePolicy + SPDX), `Benchmark/` (BenchmarkSuite + `forge-benchmark-runner` + `forge-gate-checker` + GateEvaluator + QualityMeasure), `PixelBufferBridge/` |
 | `Packages/ForgeUpscaler` | SR tiers: **playback = SRVGGNetCompact-general x4** (C.4 winner, ADR-0008); export = Real-ESRGAN CoreML (ADR-0007); preview = MetalFX. `MLXTileProcessor` (NV12→BGRA + tile/whole-frame), `PlaybackTier`/`PlaybackUpscaler`, `EfRLFN*` (rejected, retained), `Temporal/` |
-| `Packages/FormatBridge` | Video decode (FFmpeg) + encode (VideoToolbox). Self-contained copy of the shared Forge engine. |
+| `Packages/FormatBridge` | Video decode (FFmpeg) + encode (VideoToolbox: `NativeEncoderImpl` AVAssetWriter + `VideoToolboxEncoderImpl` constant-quality `VTCompressionSession`, ADR-0013). Self-contained copy of the shared Forge engine. |
 | `Packages/FFmpegXC` | Vendored LGPL-safe FFmpeg 7.1.1 static libs. `.a` files gitignored — `./build.sh` rebuilds. |
 | `Packages/ForgeTraining` | Off-device Python rig (never shipped). B.2 corpus generator (`--resume`) + B.3 NAFNet trainer (`Scripts/train_nafnet.{py,sh}`, restart-friendly — see `TRAINING.md`). |
 | `Tests/Corpus` | 30-clip royalty-free benchmark corpus. `manifest.json` + `scripts/` tracked; `clips/` gitignored (re-fetch). |
@@ -71,6 +71,8 @@ $RUNNER --corpus ../../Tests/Corpus/manifest.json \
 | 0010 | **NAFNet B.3 training data** — domain IBM signage frames (not DIV2K); proprietary handling (frames/corpus never committed, only weights ship) | Accepted |
 | 0011 | **Build runnable MLX with xcodebuild** (not `swift build` — metallib); resources **per-file `.copy`** (not `.copy("Resources")` — nesting) | Accepted |
 | 0012 | **Compression savings = CRF-encode vs source** (`--crf`); fixed-bitrate harness can't measure it | Accepted |
+| 0013 | **VideoToolbox-first ship encoder** — HEVC default / H.264 fallback (hardware, constant-quality); AV1 (SVT) + x264 conditional/opt-in | Accepted |
+| 0014 | **Revise §4 compression gate** — VMAF-targeted savings on high-bitrate sources (ship encoder), retire fixed-CRF mixed-corpus gate | Accepted |
 
 Benchmark report: `Docs/Benchmarks/benchmark-c4-ab-v2-e06ff85.json`. Real-signage eval spec: `Docs/Benchmarks/real-signage-eval-set.md`.
 
@@ -99,42 +101,49 @@ Benchmark report: `Docs/Benchmarks/benchmark-c4-ab-v2-e06ff85.json`. Real-signag
   training auto-resumes from `ckpt_latest.pt`; DIV2K opt-in `USE_DIV2K=1`).
   Proprietary frames/corpus stay under gitignored `data/` — only weights ship.
   Follow-ups: vectorize the BGRA↔RGB loop (perf); tiling for 4K on 16 GB (scale).
-- **Compression #40 — CAPABILITY VALIDATED; gate definition needs revision
-  (ADR-0014, proposed).** Forge optimization is proven smaller-at-quality on
-  high-bitrate content: signage **62.6% @ VMAF 98.74** (CRF, ADR-0012) and **47%
-  smaller @ guaranteed VMAF≥95** (VMAF-targeted, VideoToolbox HEVC, Step 1). The
-  *original* §4 gate (fixed-CRF savings-vs-source, mixed corpus) is unmeasurable:
-  the royalty-free corpus spans 52 kbps→41 Mbps (screencapture clips already
-  ~50–100 kbps → no headroom → can't "save"), and the encoder pivoted to
-  VideoToolbox/VMAF-target (ADR-0013). Plumbing fixed + committed (postProcess
-  skip for `--crf`; empty-subset N/A). **Open: adopt ADR-0014 (VMAF-targeted gate
-  on high-bitrate sources) vs filter the corpus for the old gate — Dustin's call.**
+- **Compression #40 — CAPABILITY VALIDATED; gate revised (ADR-0014, Accepted).**
+  Forge optimization is proven smaller-at-quality on high-bitrate content: signage
+  **62.6% @ VMAF 98.74** (CRF, ADR-0012) and **47% smaller @ guaranteed VMAF≥95**
+  (VMAF-targeted, VideoToolbox HEVC, Step 1). The *original* §4 gate (fixed-CRF
+  savings-vs-source, mixed corpus) is unmeasurable: the royalty-free corpus spans
+  52 kbps→41 Mbps (screencapture clips already ~50–100 kbps → no headroom → can't
+  "save"), and the encoder pivoted to VideoToolbox/VMAF-target (ADR-0013). Plumbing
+  fixed + committed (postProcess skip for `--crf`; empty-subset N/A). **ADR-0014
+  adopted**: gate = VMAF-targeted savings on a high-bitrate corpus subset, on the
+  ship encoder. Remaining (#54): wire Step 0 encoder + Step 1 search into the
+  benchmark + add a high-bitrate corpus tag, then flip the gate.
 - **SigLIP2 NR-IQA** training + integration (retires the v0.3 KADID non-commercial scorer).
 - **12-clip real-signage eval set** (IBM Think 26, local/proprietary — not committed): `Docs/Benchmarks/real-signage-eval-set.md`.
 - Real-signage finding: shipped playback SR scored **97.8–99.7 VMAF** on real content incl. text → PRD VMAF≥90 met; Phase F (text-aware SR) deprioritized.
 
-### Resume next (onsite, good internet — 2026-05-31 handoff)
+### Resume next (2026-05-31 handoff)
 
 NAFNet track **B.1→B.5 done + shipping** (trained 41.515 dB, converted, wired,
 tested). Entry-tier product story validated on real IBM signage: **SR HD→4K +13
-VMAF** vs bicubic, **optimize 62.6% smaller @ 98.74 VMAF**. Immediate next:
-1. **Finish #40** (ADR-0012 plumbing): skip `postProcessCompression` for `--crf`
-   + empty-subset = N/A; **fetch the royalty-free corpus** (needs internet:
-   `cd Tests/Corpus && ./scripts/fetch_corpus.sh`); run full subset (general @
-   balanced + signage @ maximum). Then the gate flag is green.
-2. Optional perf: vectorize BGRA↔RGB; tiling for 4K on 16 GB.
-3. Then **#23 SigLIP2 NR-IQA** + **#15 PocketDVDNet** (B.6) remain on the model side.
+VMAF** vs bicubic, **optimize 62.6% smaller @ 98.74 VMAF**. Encoder strategy
+adopted (ADR-0013/0014) and **Step 0 shipped** (native VideoToolbox constant-
+quality encoder, test green). Roadmap (#48–54) — **Step 0 ✅**:
+1. **#49 Step 1 native** — drive `VideoToolboxEncoderImpl.constantQuality` from a
+   Swift VMAF-targeted search (sample-encode binary search). Prototype proves the
+   algorithm (`Tools/vmaf_target_search.py`, **47% @ VMAF≥95**); productize in
+   FormatBridge/runner. This is the shipping quality-targeted encode path + unblocks
+   the ADR-0014 gate (#54).
+2. **#50 Step 2** — per-shot VMAF-targeted (shot-detect → per-shot search → stitch);
+   corpus now has multi-shot clips to measure the win over per-title.
+3. **#54** — implement ADR-0014 gate (wire Step 0+1 into benchmark + high-bitrate
+   corpus tag), then flip §4. **#51 Step 3** (IQA-gated NAFNet) + **#52 Step 4**
+   (SVT-AV1 tier) + **#23/#15** remain on the model side.
 Build reminder: **xcodebuild** for runnable MLX (ADR-0011); `swift build` only
-compile-checks. ~6 build cycles/session is normal — budget for it.
+compile-checks; FormatBridge VideoToolbox tests run under `swift test` (system
+framework). ~6 build cycles/session is normal — budget for it.
 
-**Encoding strategy (analyzed 2026-05-31, no internet needed):** Vimeo ≈ per-title
-**x264 ~CRF 20** High@5.2, adaptive B-frames, ~2–3 s GOP, **no SR**
-(`Docs/Benchmarks/vimeo-method-analysis.md`). Forge's `--crf` path *is* this tool
-— **dial CRF to ~20–21** (we used 23) to match Vimeo's operating point on clean
-signage; beat it via NAFNet (degraded input) + HD→4K SR + AV1. **Deep-research
-request queued** (run onsite, web): `Docs/Research/deep-research-request-encoding-
-strategy.md` — content-adaptive/VMAF-targeted SOTA + restoration→compression (+
-Vimeo pipeline + AV1).
+**Encoding strategy (deep research delivered):** Vimeo ≈ per-title **x264 ~CRF 20**
+High@5.2, adaptive B-frames, ~2–3 s GOP, **no SR**
+(`Docs/Benchmarks/vimeo-method-analysis.md`). Research report adopted →
+`Docs/Research/forge-studio-encoding-strategy-v2.md`: ship **VideoToolbox HEVC +
+VMAF-targeted per-title/per-shot** rate control (ADR-0013), beat Vimeo via NAFNet
+(degraded input) + HD→4K SR + opt-in AV1. The Step 0→6 roadmap above is the
+productization of that report.
 
 ## Provenance
 
