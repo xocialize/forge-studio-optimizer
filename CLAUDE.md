@@ -82,6 +82,7 @@ Benchmark report: `Docs/Benchmarks/benchmark-c4-ab-v2-e06ff85.json`. Real-signag
 - **Weight loading** (MLX): `MLX.loadArrays` → `ModuleParameters.unflattened` → `Module.update(verify: .noUnusedKeys)`. Key remap where safetensors keys ≠ `@ModuleInfo` flatten.
 - **Pixel-shuffle NHWC** must split channels `(C, r, r)` to match PyTorch `nn.PixelShuffle` (mlx-porting pitfall #7).
 - **NV12 hazard**: `FFmpegDecoder` emits NV12 (biplanar YUV). Any byte-level `CVPixelBufferGetBaseAddress` reader must `ensureBGRA()` first (CoreImage) — else sheared garbage. This bug hid behind an SSIM=1.0 tautology and was only caught by *looking at output pixels*. **When validating model output, extract a frame and look.**
+- **VMAF framesync desync across timebases**: `libvmaf` pairs its two inputs by **PTS**. If test and reference live in different containers/timebases (e.g. ffv1-in-mkv @ 1/1000 vs HEVC-in-mp4 @ 1/12288), the coarser timebase's PTS rounding desyncs the pairing — motion frames compare against neighbours and VMAF collapses (a near-lossless encode measured ~70 vs its true ~93; frame-by-index PSNR was 63 dB, so frames *were* aligned by index — only the timestamp pairing was off). **Frame-lock both inputs (`settb=AVTB,setpts=N`) so pairing is by frame index.** Plain `setpts=N` is insufficient (each stream keeps its own timebase). Fixed in `QualityMeasure.vmaf`; no-op when inputs already share a pipeline.
 - **fp16 reductions overflow at video resolution**: an fp16 *global* spatial mean/sum (e.g. NAFNet SCA's average-pool over H×W) overflows fp16's ~65504 ceiling at ≥540×960 → NaN → garbage output. Invisible at 128² (unit tests) and in fp32 (parity) — only a real 4K run exposed it (VMAF 3.17, #40). **Do any global pool/sum in fp32, cast back.** Lesson: validate fp16 inference at *production resolution*, not just small test tiles.
 - **Parity tests** for every weight conversion (PyTorch↔MLX): single-layer max_abs < 1e-3 @ FP16, full pass < 1e-2.
 - **Benchmark gates**: 5 quality/size/compression gates (realtime gates removed, ADR-0009). Throughput still measured (`fps_mean`/`realtime_factor`), not gated.
@@ -124,14 +125,18 @@ VMAF** vs bicubic, **optimize 62.6% smaller @ 98.74 VMAF**. Encoder strategy
 adopted (ADR-0013/0014); **Step 0 shipped** (native VideoToolbox constant-quality
 encoder) and **Step 1 native core shipped** (all test-green). Roadmap (#48–54) —
 **Step 0 ✅, Step 1 core ✅**:
-1. **#49 Step 1** — native core DONE: `QualityTargetSearch` (sample-encode binary
-   search for the lowest quality clearing a VMAF floor) + `VideoToolboxQualityTarget`
-   `Encoder` (search ↔ Step-0 encoder) in FormatBridge, + `FFmpegVMAFScorer` (real
-   libvmaf seam) in the runner — compose via `makeQualityTargetEncoder(scorer:`
-   `search:)`. Prototype/strategy target: **47% @ VMAF≥95** (`Tools/vmaf_target_`
-   `search.py`). **Remaining**: a runner/CLI pass that streams real corpus clips
-   through it at scale (decode→search→final encode, bounded memory) + report savings
-   vs a flat-quality floor baseline — this *is* the #54 gate integration.
+1. **#49 Step 1** — native + VALIDATED END-TO-END. Core: `QualityTargetSearch`
+   (sample-encode binary search for the lowest quality clearing a VMAF floor) +
+   `VideoToolboxQualityTargetEncoder` (search ↔ Step-0 encoder) in FormatBridge, +
+   `FFmpegVMAFScorer` (real libvmaf seam) in the runner — compose via
+   `makeQualityTargetEncoder(scorer:search:)`. The **`forge-quality-target` CLI**
+   runs the whole path on a real clip (decode→search→encode, bounded sample) and on
+   `general-animation-01.mp4` (1080p, 5.23 Mbps) gave **63.0% smaller @ VMAF≥95**
+   / **79.2% @ VMAF≥90** (`Docs/Benchmarks/step1-native-validation.md`). Found+fixed
+   a real VMAF framesync-timebase bug along the way (see Conventions). **Remaining
+   for full #49**: streaming full-clip final encode for long 4K masters (sample is
+   bounded today). **#54** then runs it across the high-bitrate corpus vs a flat
+   floor baseline for the honest cross-corpus savings number + flips the gate.
 2. **#50 Step 2** — per-shot VMAF-targeted (shot-detect → per-shot search → stitch);
    reuses the same search/scorer/encoder seams; corpus now has multi-shot clips.
 3. **#54** — implement ADR-0014 gate (the #49 runner pass above + high-bitrate
