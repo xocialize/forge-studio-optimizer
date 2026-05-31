@@ -54,6 +54,11 @@ struct QualityTargetCLI {
         // Per-shot mode (Step 2): shot-detect → per-shot VMAF-target → stitch,
         // reported against a per-title encode of the same frames.
         var perShot: Bool = false
+        // Encode at a FIXED quality (skip the search) — the flat floor-guaranteeing
+        // baseline for the ADR-0014 gate. Still measures VMAF + size.
+        var fixed: Float? = nil
+        // Emit a machine-readable JSON result line (for corpus harnesses / the gate).
+        var json: Bool = false
     }
 
     enum CLIError: Error, CustomStringConvertible {
@@ -103,6 +108,8 @@ struct QualityTargetCLI {
             case "--restore": o.restore = true
             case "--quality": if let v = it.next().flatMap(Float.init) { o.fixedQuality = v }
             case "--per-shot": o.perShot = true
+            case "--fixed": o.fixed = it.next().flatMap(Float.init)
+            case "--json": o.json = true
             case "--help", "-h": print(usageText); exit(0)
             default: throw CLIError.usage("unknown argument: \(a)")
             }
@@ -153,10 +160,12 @@ struct QualityTargetCLI {
         try buildReference(source: o.input, startFrame: 0, count: frames.count,
                            to: reference, ffmpeg: ffmpeg)
 
-        // 4. VMAF-targeted encode.
+        // 4. VMAF-targeted encode. With --fixed q the search range is q…q, so it
+        //    just encodes at q and measures (the flat-baseline path).
         let scorer = FFmpegVMAFScorer(ffmpegPath: ffmpeg)
+        let qRange: ClosedRange<Float> = o.fixed.map { max(0, min(1, $0))...max(0, min(1, $0)) } ?? 0.1...1.0
         let search = QualityTargetSearch(targetScore: o.targetVMAF, slack: o.slack,
-                                         maxProbes: o.maxProbes)
+                                         qualityRange: qRange, maxProbes: o.maxProbes)
         let encoder = FormatBridgeFactory.makeQualityTargetEncoder(scorer: scorer, search: search)
         let settings = VideoEncoderSettings(codec: o.codec, resolution: .original,
                                             frameRate: .target(fps))
@@ -182,6 +191,14 @@ struct QualityTargetCLI {
             log("source bitrate : \(fmt(Double(src) / 1e6)) Mbps")
             log(String(format: "SAVINGS vs src : %.1f%% smaller at a guaranteed VMAF ≥ %@",
                        savings, fmt(o.targetVMAF)))
+        }
+        if o.json {
+            // One machine-readable line for corpus harnesses / the ADR-0014 gate.
+            let src = vs.bitrate ?? 0
+            print("JSON {\"clip\":\"\(o.input.lastPathComponent)\",\"frames\":\(frames.count),"
+                + "\"fps\":\(fmt(fps, 3)),\"quality\":\(fmt(Double(result.quality), 3)),"
+                + "\"achievedVMAF\":\(fmt(result.achievedScore, 3)),\"metTarget\":\(result.metTarget),"
+                + "\"fixed\":\(o.fixed != nil),\"targetedBytes\":\(outBytes),\"sourceBytes\":\(src)}")
         }
         if let keep = o.keepOutput { log("kept output    : \(keep.path)") }
     }
