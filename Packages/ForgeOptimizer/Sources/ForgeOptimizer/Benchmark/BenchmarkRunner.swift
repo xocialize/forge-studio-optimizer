@@ -466,6 +466,159 @@ public struct BenchmarkRunner: Sendable {
         )
     }
 
+    // MARK: - Compression pass (CRF vs source, #40)
+
+    /// Optimize one clip at one level and encode it at a constant-quality CRF
+    /// target via ffmpeg (libx264), then report **savings vs the source file**
+    /// — the real product metric (Forge re-encodes the master smaller while
+    /// holding quality; NAFNet restoration lets the encoder go harder). This is
+    /// the §4 compression-gate path. Additive: the AVAssetWriter optimizer pass
+    /// (fixed bitrate, used by C.4/B.5) is untouched.
+    ///
+    /// `savingsVsBaseline` here is savings-vs-source (1 − out/source); the gate
+    /// reads that field. VMAF is the optimized output vs the source.
+    public func runCompressionCRFPass(
+        level: OptimizerRun.OptimizationLevel,
+        clip: CorpusClip,
+        crf: Int
+    ) async -> OptimizerRun {
+        let clipURL = clipsDirectory.appendingPathComponent("\(clip.id).mp4")
+        let fm = FileManager.default
+        let (width, height) = Self.parseResolution(clip.resolution)
+        guard fm.fileExists(atPath: clipURL.path), width > 0, height > 0 else {
+            return OptimizerRun(
+                clipID: clip.id, optimizationLevel: level, resolution: clip.resolution,
+                status: .failed,
+                failureReason: "clip not materialized or bad resolution '\(clip.resolution)'")
+        }
+
+        let chain: (any FrameProcessor)?
+        do {
+            chain = try PreprocessorFactory.makeChain(for: Self.mapToFormatBridgeLevel(level))
+        } catch {
+            return OptimizerRun(
+                clipID: clip.id, optimizationLevel: level, resolution: clip.resolution,
+                status: .failed, failureReason: "makeChain failed: \(error)")
+        }
+
+        let frameRate = clip.frameRate ?? 30.0
+        let tempDir = fm.temporaryDirectory.appendingPathComponent("forge-crf-\(UUID().uuidString)")
+        try? fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tempDir) }
+        let outURL = tempDir.appendingPathComponent("\(clip.id)-\(level.rawValue)-crf\(crf).mp4")
+
+        // ffmpeg reading raw BGRA from stdin → libx264 CRF.
+        let ff = Process()
+        ff.executableURL = URL(fileURLWithPath: ffmpegFullPath)
+        ff.arguments = [
+            "-f", "rawvideo", "-pixel_format", "bgra",
+            "-video_size", "\(width)x\(height)", "-framerate", "\(frameRate)",
+            "-i", "pipe:0", "-an",
+            "-c:v", "libx264", "-preset", "medium", "-crf", "\(crf)", "-pix_fmt", "yuv420p",
+            "-y", outURL.path,
+        ]
+        let stdinPipe = Pipe(); ff.standardInput = stdinPipe
+        let errPipe = Pipe(); ff.standardError = errPipe
+        let fh = stdinPipe.fileHandleForWriting
+
+        let decoder = FormatBridgeFactory.makeDecoder()
+        var frameCount = 0
+        var perFrameMs: [Double] = []
+        var firstFrameMs = 0.0
+        var abortReason: String? = nil
+        let rowBytes = width * 4
+
+        do {
+            try await decoder.open(url: clipURL)
+            try ff.run()
+            let clock = ContinuousClock()
+            while true {
+                let frame = try await decoder.decodeNextVideoFrame()
+                guard let video = frame else { break }
+                let start = clock.now
+                let processed = chain?.process(video.pixelBuffer) ?? video.pixelBuffer
+                let el = clock.now - start
+                let ms = Double(el.components.seconds) * 1000.0 + Double(el.components.attoseconds) / 1e15
+                perFrameMs.append(ms)
+                if frameCount == 0 { firstFrameMs = ms }
+                frameCount += 1
+
+                // Pack to tight BGRA (strip row padding) and write one frame.
+                let bgra = ensureBGRA(processed)
+                CVPixelBufferLockBaseAddress(bgra, .readOnly)
+                if let base = CVPixelBufferGetBaseAddress(bgra) {
+                    let bpr = CVPixelBufferGetBytesPerRow(bgra)
+                    let src = base.assumingMemoryBound(to: UInt8.self)
+                    var packed = [UInt8](repeating: 0, count: rowBytes * height)
+                    packed.withUnsafeMutableBufferPointer { dst in
+                        for y in 0 ..< height {
+                            memcpy(dst.baseAddress! + y * rowBytes, src + y * bpr, rowBytes)
+                        }
+                    }
+                    CVPixelBufferUnlockBaseAddress(bgra, .readOnly)
+                    do { try fh.write(contentsOf: Data(packed)) }
+                    catch { abortReason = "ffmpeg pipe write failed at frame \(frameCount): \(error)"; break }
+                } else {
+                    CVPixelBufferUnlockBaseAddress(bgra, .readOnly)
+                }
+            }
+        } catch {
+            abortReason = "decode/encode aborted at frame \(frameCount): \(error)"
+        }
+        decoder.close()
+        try? fh.close()
+        ff.waitUntilExit()
+
+        guard frameCount > 0, ff.terminationStatus == 0, fm.fileExists(atPath: outURL.path) else {
+            let log = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            return OptimizerRun(
+                clipID: clip.id, optimizationLevel: level, resolution: "\(width)x\(height)",
+                frameCount: frameCount, status: .failed,
+                failureReason: "CRF encode failed (exit \(ff.terminationStatus), frames \(frameCount)): "
+                    + (abortReason ?? "") + " " + String(log.suffix(300)))
+        }
+
+        let outBytes = ((try? fm.attributesOfItem(atPath: outURL.path)[.size]) as? Int) ?? 0
+        let srcBytes = ((try? fm.attributesOfItem(atPath: clipURL.path)[.size]) as? Int) ?? 0
+        let ratio = srcBytes > 0 ? Double(outBytes) / Double(srcBytes) : nil
+        let savings = ratio.map { 1.0 - $0 }
+
+        var vmaf: Double? = nil
+        let qm = QualityMeasure()
+        vmaf = try? await qm.vmaf(referenceURL: clipURL, testURL: outURL, ffmpegPath: ffmpegFullPath)
+
+        let tail = perFrameMs.dropFirst().sorted()
+        let mean = tail.isEmpty ? 0.0 : tail.reduce(0, +) / Double(tail.count)
+        let speed = SpeedMetrics(
+            msPerFrameMean: mean,
+            msPerFrameMedian: Self.percentile(tail, 0.5),
+            msPerFrameP95: Self.percentile(tail, 0.95),
+            msPerFrameP99: Self.percentile(tail, 0.99),
+            msPerFrameStddev: Self.stddev(values: tail, mean: mean),
+            msFirstFrame: firstFrameMs > 0 ? firstFrameMs : nil,
+            realtimeFactor: frameRate > 0 && mean > 0 ? (1000.0 / mean) / frameRate : 0.0,
+            fpsMean: mean > 0 ? 1000.0 / mean : 0.0
+        )
+        let compression = CompressionMetrics(
+            inputBytes: srcBytes,
+            outputBytes: outBytes,
+            ratioVsBaseline: ratio,
+            savingsVsBaseline: savings,
+            encoder: "libx264",
+            encoderSettings: [
+                "codec": AnyCodable("h264"),
+                "crf": AnyCodable(crf),
+                "baseline": AnyCodable("source"),
+            ]
+        )
+        return OptimizerRun(
+            clipID: clip.id, optimizationLevel: level, resolution: "\(width)x\(height)",
+            frameCount: frameCount, speed: speed,
+            quality: QualityMetrics(vmaf: vmaf, psnrDB: nil, ssim: nil, lpips: nil),
+            memory: nil, compression: compression,
+            status: abortReason == nil ? .success : .partial, failureReason: abortReason)
+    }
+
     // MARK: - Upscaler pass
 
     /// Drive one clip × one playback backend through the real upscaler

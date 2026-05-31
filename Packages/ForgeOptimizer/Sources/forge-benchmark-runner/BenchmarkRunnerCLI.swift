@@ -76,6 +76,10 @@ struct RunnerOptions {
     /// clean ÷scale downscale; the clip is the HR reference. Only affects the
     /// playback-backend pass.
     var externalLRDir: URL?
+    /// Compression pass (#40): when set, the optimizer pass encodes at this
+    /// libx264 CRF via ffmpeg and reports savings vs the source file (not the
+    /// fixed-bitrate AVAssetWriter path). Quality-targeted = real savings.
+    var crf: Int?
 }
 
 enum RunnerError: Error, CustomStringConvertible {
@@ -108,6 +112,7 @@ func parseArgs(_ argv: [String]) throws -> RunnerOptions {
     var playbackScale: Int = 4
     var upscalerPassOnly = false
     var externalLRDir: URL?
+    var crf: Int?
 
     var i = 1
     while i < argv.count {
@@ -186,6 +191,12 @@ func parseArgs(_ argv: [String]) throws -> RunnerOptions {
             }
             externalLRDir = URL(fileURLWithPath: argv[i + 1])
             i += 2
+        case "--crf":
+            guard i + 1 < argv.count, let v = Int(argv[i + 1]), v >= 0, v <= 51 else {
+                throw RunnerError.parseFailed("--crf needs an integer 0..51")
+            }
+            crf = v
+            i += 2
         default:
             throw RunnerError.unknownFlag(arg)
         }
@@ -213,7 +224,8 @@ func parseArgs(_ argv: [String]) throws -> RunnerOptions {
         playbackBackends: playbackBackends,
         playbackScale: playbackScale,
         upscalerPassOnly: upscalerPassOnly,
-        externalLRDir: externalLRDir
+        externalLRDir: externalLRDir,
+        crf: crf
     )
 }
 
@@ -380,7 +392,7 @@ func run(_ opts: RunnerOptions) async throws {
             for level in opts.levels {
                 runIndex += 1
                 log("  [\(runIndex)/\(totalRuns)] \(clip.id) @ \(level.rawValue) …")
-                let run = try await suite.runOptimizerPass(level: level, clipID: clip.id)
+                let run = try await suite.runOptimizerPass(level: level, clipID: clip.id, crf: opts.crf)
                 switch run.status {
                 case .success:
                     let fps = run.speed?.fpsMean.map { String(format: "%.1f fps", $0) } ?? "—"

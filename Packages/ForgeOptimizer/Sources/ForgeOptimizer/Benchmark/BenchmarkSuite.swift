@@ -134,7 +134,8 @@ public actor BenchmarkSuite {
     /// unit tests), this emits a `.failed` placeholder.
     public func runOptimizerPass(
         level: OptimizerRun.OptimizationLevel,
-        clipID: String
+        clipID: String,
+        crf: Int? = nil
     ) async throws -> OptimizerRun {
         guard let clip = corpus.clips.first(where: { $0.id == clipID }) else {
             let run = OptimizerRun(
@@ -150,7 +151,11 @@ public actor BenchmarkSuite {
 
         let run: OptimizerRun
         if let runner = runner {
-            run = await runner.runOptimizerPass(level: level, clip: clip)
+            if let crf = crf {
+                run = await runner.runCompressionCRFPass(level: level, clip: clip, crf: crf)
+            } else {
+                run = await runner.runOptimizerPass(level: level, clip: clip)
+            }
         } else {
             run = OptimizerRun(
                 clipID: clipID,
