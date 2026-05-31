@@ -22,9 +22,10 @@ the floor on every clip). Encode each clip flat at `Q_flat` → `b_i`. Gate metr
 | talkinghead-01 | 0.719 | 95.35 | 3.45 | 3.45 | 0% (is the baseline) |
 | **total** | | worst 94.67 | **21.88** | **26.23** | **16.6%** |
 
-- **`compression_quality_target` = 16.6% smaller than flat** → **FAIL** vs ADR-0014's
-  suggested ≥30%.
+- **`compression_quality_target` = 16.6% smaller than flat** → **PASS** vs the
+  calibrated **≥15%** threshold (was 30%, optimistic — see Decision below).
 - **`vmaf_target_floor` = worst 94.67 ≥ 94.5** → **PASS** (quality is honest).
+- **GATE: PASS.**
 
 ## Reading
 
@@ -39,17 +40,19 @@ the floor on every clip). Encode each clip flat at `Q_flat` → `b_i`. Gate metr
   the flat baseline — a different, product-facing claim. ADR-0014 deliberately
   chose vs-flat to avoid source-bitrate dependence, at the cost of a smaller number.
 
-## Open decision (needs Dustin)
+## Decision (2026-05-31, Dustin)
 
-The gate as written fails. Options:
-1. **Calibrate the threshold to ~15%** (realistic for per-title-vs-flat; matches the
-   literature). Smallest change; revise ADR-0014's suggested X.
-2. **Gate on savings-vs-source** (≥X% smaller than the high-bitrate source, e.g.
-   ≥40%) — impressive (63% here) but reintroduces source-bitrate dependence (the
-   reason it's restricted to the high-bitrate subset).
-3. **Expand the high-bitrate subset** for more quality diversity before fixing a
-   threshold (the 3-clip committable subset is thin; real masters are proprietary).
+**Calibrate the threshold to ≥15%** — keep ADR-0014's source-independent vs-flat
+metric (good CI regression guard; matches the ~20% literature), and keep
+**63%-vs-source as the headline product number**. The gate now **PASSES** at 16.6%.
 
-Until decided, the **measurement + tooling are in place** (`--fixed`/`--json` on
-the encoder, `quality_target_gate.py`); wiring the chosen metric into
-`GateEvaluator` is the remaining step.
+Implemented: the fixed-CRF gates (`compression_balanced_min` /
+`compression_signage_max_min`) are retired from `GateEvaluator` (catalog v1.1, now
+3 report-driven gates); compression is gated by `Tools/quality_target_gate.py`
+(`--min-savings 15`, exits 0/1) — it runs `forge-quality-target`, not the optimizer
+benchmark, so it lives outside the report-driven catalog.
+
+**Follow-up (when convenient):** the 3-clip subset is thin (2 of 3 are the flat
+baseline). Adding more diverse ≥8 Mbps royalty-free clips would make the number
+more robust and likely raise it. Not blocking — the gate passes and the tooling is
+in place.

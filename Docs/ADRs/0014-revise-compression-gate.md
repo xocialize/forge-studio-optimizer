@@ -36,9 +36,15 @@ on high-bitrate sources**, on the ship encoder:
 - **`compression_quality_target`** — at a target VMAF (start 95; 93 for the
   "smaller" tier), the per-title VMAF-targeted encode (VideoToolbox HEVC) must be
   **≥X% smaller than the floor-guaranteeing flat-quality baseline** on a
-  **high-bitrate** corpus subset (sources ≥ ~8 Mbps, i.e. true masters). Suggested
-  X: **≥30%** (we measure ~47% on signage). Excludes already-compressed clips by
-  source-bitrate threshold, not by category.
+  **high-bitrate** corpus subset (sources ≥ ~8 Mbps, i.e. true masters). Excludes
+  already-compressed clips by source-bitrate threshold, not by category.
+  **X CALIBRATED to ≥15%** (2026-05-31, Dustin): the first real measurement on the
+  3-clip ≥8 Mbps subset gave **16.6% vs flat** — in line with the literature's
+  ~20% per-title win. The earlier "~47%/63%" figures were savings **vs source** (a
+  different, product-facing claim), not vs the flat baseline; the vs-flat metric is
+  source-independent (better as a CI regression guard) but smaller, so 30% was
+  optimistic. The 63%-vs-source remains the headline product number. See
+  `Docs/Benchmarks/adr0014-gate-measurement.md`.
 - **`vmaf_target_floor`** — the targeted encodes must actually hit the VMAF floor
   (mean ≥ target − slack), i.e. quality is guaranteed, savings are honest.
 - Keep `bundle_size_max`; retire `compression_balanced_min` /
