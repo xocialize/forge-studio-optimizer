@@ -160,20 +160,20 @@ struct BenchmarkTests {
 
     // MARK: - GateEvaluator
 
-    @Test("GateEvaluator emits 5 gates (realtime gates removed, ADR-0009)")
-    func gateEvaluatorEmitsFiveGates() {
+    @Test("GateEvaluator emits 3 gates (realtime gates ADR-0009; fixed-CRF compression ADR-0014)")
+    func gateEvaluatorEmitsThreeGates() {
         let report = Self.minimalReport()
         let evaluation = GateEvaluator().evaluate(report: report)
-        #expect(evaluation.results.count == 5)
+        #expect(evaluation.results.count == 3)
         #expect(evaluation.version == GateEvaluator.catalogVersion)
-        // All 5 quality/size/compression gate IDs present; the two realtime
-        // throughput gates were removed per ADR-0009.
+        // Report-driven gates only. The two realtime throughput gates were removed
+        // per ADR-0009; the two fixed-CRF compression gates were retired per
+        // ADR-0014 (compression is now gated by Tools/quality_target_gate.py, which
+        // runs forge-quality-target, not this optimizer-benchmark report).
         let ids = Set(evaluation.results.map { $0.gateID })
         let expected: Set<String> = [
             "bundle_size_max",
             "vmaf_balanced_min",
-            "compression_balanced_min",
-            "compression_signage_max_min",
             "quality_regressor_srcc_min",
         ]
         #expect(ids == expected)
@@ -239,7 +239,7 @@ struct BenchmarkTests {
 
         let report = try await suite.emit()
         #expect(report.runLabel == "test-emit")
-        #expect(report.gates.results.count == 5)  // realtime gates removed (ADR-0009)
+        #expect(report.gates.results.count == 3)  // realtime gates (ADR-0009) + fixed-CRF compression (ADR-0014) removed
         #expect(report.pipelineResults.forgeOptimizer?.runs.count == 1)
         // Stubbed runs are .failed with the expected reason.
         let run = report.pipelineResults.forgeOptimizer?.runs.first
@@ -571,10 +571,14 @@ struct BenchmarkTests {
 
     /// Walk up from the test file to find `Forge/Tests/Corpus/manifest.json`.
     static func locateManifest() -> URL? {
+        // Walk up to the repo root and find Tests/Corpus/manifest.json. (The
+        // stale `Forge/` prefix here was from the pre-relocation monorepo; after
+        // the move to forge-studio-optimizer (#44) the manifest is at
+        // <repo>/Tests/Corpus/manifest.json, so this test had been silently
+        // failing on the missing path.)
         var dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         for _ in 0..<10 {
             let candidate = dir
-                .appendingPathComponent("Forge")
                 .appendingPathComponent("Tests")
                 .appendingPathComponent("Corpus")
                 .appendingPathComponent("manifest.json")

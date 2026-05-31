@@ -42,7 +42,7 @@ def main():
     ap.add_argument("--target", type=float, default=95.0)
     ap.add_argument("--slack", type=float, default=0.5)
     ap.add_argument("--max-frames", type=int, default=120)
-    ap.add_argument("--min-savings", type=float, default=30.0)
+    ap.add_argument("--min-savings", type=float, default=15.0)  # ADR-0014 calibrated
     ap.add_argument("--clips", default=",".join(DEFAULT_SUBSET))
     a = ap.parse_args()
     subset = [c for c in a.clips.split(",") if c]

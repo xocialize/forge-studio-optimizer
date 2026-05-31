@@ -51,7 +51,7 @@ public struct GateDefinition: Sendable, Hashable {
 public struct GateEvaluator: Sendable {
 
     /// Schema/plan version tag emitted as `gates.version` in the report.
-    public static let catalogVersion = "v1.0"
+    public static let catalogVersion = "v1.1"  // v1.1: retired fixed-CRF compression gates (ADR-0014)
 
     public init() {}
 
@@ -79,20 +79,14 @@ public struct GateEvaluator: Sendable {
                 target: 90.0,
                 corpusSubset: .all
             ),
-            GateDefinition(
-                gateID: "compression_balanced_min",
-                description: "Savings vs non-optimized at Balanced, mean over general subset",
-                comparison: .gte,
-                target: 0.35,
-                corpusSubset: .general
-            ),
-            GateDefinition(
-                gateID: "compression_signage_max_min",
-                description: "Savings vs non-optimized at Maximum on signage subset",
-                comparison: .gte,
-                target: 0.55,
-                corpusSubset: .signage
-            ),
+            // RETIRED (ADR-0014): the fixed-CRF `compression_balanced_min` /
+            // `compression_signage_max_min` gates were unmeasurable on a mixed
+            // corpus (already-compressed clips can't "save vs source"). Compression
+            // is now gated by the VMAF-targeted measurement on a high-bitrate
+            // subset — `Tools/quality_target_gate.py` (per-title-targeted ≥15%
+            // smaller than the floor-guaranteeing flat baseline, on the ship
+            // encoder). It runs forge-quality-target, not the optimizer benchmark,
+            // so it lives outside this report-driven catalog.
             GateDefinition(
                 gateID: "quality_regressor_srcc_min",
                 description: "SRCC vs human MOS on signage holdout (only valid after Phase E)",
@@ -207,8 +201,6 @@ public struct GateEvaluator: Sendable {
     ) -> (OptimizerRun.OptimizationLevel, GateResult.CorpusSubset)? {
         switch d.gateID {
         case "vmaf_balanced_min":        return (.balanced, d.corpusSubset ?? .all)
-        case "compression_balanced_min": return (.balanced, d.corpusSubset ?? .general)
-        case "compression_signage_max_min": return (.maximum, d.corpusSubset ?? .signage)
         default: return nil
         }
     }
@@ -229,20 +221,6 @@ public struct GateEvaluator: Sendable {
                 in: report,
                 level: .balanced,
                 subset: definition.corpusSubset ?? .all
-            )
-
-        case "compression_balanced_min":
-            return meanCompressionSavings(
-                in: report,
-                level: .balanced,
-                subset: definition.corpusSubset ?? .general
-            )
-
-        case "compression_signage_max_min":
-            return meanCompressionSavings(
-                in: report,
-                level: .maximum,
-                subset: definition.corpusSubset ?? .signage
             )
 
         case "quality_regressor_srcc_min":
@@ -294,13 +272,4 @@ public struct GateEvaluator: Sendable {
         return mean(values)
     }
 
-    private func meanCompressionSavings(
-        in report: BenchmarkReport,
-        level: OptimizerRun.OptimizationLevel,
-        subset: GateResult.CorpusSubset
-    ) -> Double {
-        let values = optimizerRuns(in: report, level: level, subset: subset)
-            .compactMap { $0.compression?.savingsVsBaseline }
-        return mean(values)
-    }
 }
