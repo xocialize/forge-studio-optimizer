@@ -139,22 +139,36 @@ public struct QualityMeasure: Sendable {
             throw QualityMeasureError.ffmpegMissing(ffmpegPath)
         }
 
-        // libvmaf requires both inputs at identical dimensions, and it does
-        // NOT auto-rescale. Input 0 is test (distorted), input 1 is the
-        // reference. `scale2ref` scales the reference ([1:v]) to the test's
-        // ([0:v]) dimensions with bicubic before libvmaf — so a few-pixel
-        // rounding difference between the SR output and the original ground
-        // truth (e.g. 1080/4*4 vs 1080) is absorbed rather than throwing
-        // "failed to configure input pad on Parsed_libvmaf". For the proper
-        // SR benchmark (downscale → SR → compare-to-original) test and
-        // reference are already ~equal resolution, so this is a no-op /
-        // sub-pixel correction, not a methodology-altering rescale.
+        // Input 0 is test (distorted), input 1 is the reference.
+        //
+        // FRAME-LOCK FIRST (`settb=AVTB,setpts=N`): libvmaf pairs the two inputs
+        // by presentation timestamp. When the test and reference live in
+        // different containers/timebases (e.g. ffv1-in-mkv at 1/1000 vs
+        // HEVC-in-mp4 at 1/12288), the coarser timebase's PTS rounding desyncs
+        // the pairing — every motion frame gets compared against a neighbour and
+        // VMAF collapses (a near-lossless encode measured ~70 instead of ~93;
+        // diagnosed 2026-05-31). Re-stamping BOTH streams onto a common timebase
+        // with PTS = frame index makes libvmaf pair frame-i ↔ frame-i. It's a
+        // no-op when the inputs already align (same pipeline, as in the SR
+        // benchmark). Plain `setpts=N` is NOT enough — without `settb` each
+        // stream keeps its own timebase, so equal PTS indices map to different
+        // real times and the misalignment gets worse.
+        //
+        // THEN `scale2ref` scales the (frame-locked) reference to the test's
+        // dimensions with bicubic, absorbing a few-pixel rounding difference
+        // (e.g. 1080/4*4 vs 1080) rather than throwing "failed to configure
+        // input pad on Parsed_libvmaf". For an equal-resolution compare it's a
+        // sub-pixel no-op, not a methodology-altering rescale.
+        let lavfi = "[0:v]settb=AVTB,setpts=N[d0];"
+            + "[1:v]settb=AVTB,setpts=N[r0];"
+            + "[r0][d0]scale2ref=flags=bicubic[refscaled][dist];"
+            + "[dist][refscaled]libvmaf"
         let args = [
             "-nostats",
             "-hide_banner",
             "-i", testURL.path,
             "-i", referenceURL.path,
-            "-lavfi", "[1:v][0:v]scale2ref=flags=bicubic[refscaled][dist];[dist][refscaled]libvmaf",
+            "-lavfi", lavfi,
             "-f", "null", "-",
         ]
 
