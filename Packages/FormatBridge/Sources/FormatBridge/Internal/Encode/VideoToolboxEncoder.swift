@@ -69,6 +69,20 @@ final class VideoToolboxEncoderImpl: VideoEncoding, @unchecked Sendable {
         set(kVTCompressionPropertyKey_ProfileLevel,
             videoSettings.codec == .hevc ? kVTProfileLevel_HEVC_Main_AutoLevel
                                          : kVTProfileLevel_H264_High_AutoLevel)
+
+        // Colour: pin to BT.709 (primaries / transfer / matrix). Without this VT
+        // (a) leaves the output stream UNTAGGED ("unknown" colr atom → players
+        // guess) and (b) picks an unspecified RGB→YCbCr matrix. When the encoder
+        // is fed RGB/BGRA frames (e.g. the NAFNet restore path: NV12 →CoreImage→
+        // BGRA → here), a 601-vs-709 matrix mismatch leaves neutral colours
+        // (white/grey) intact but visibly drifts SATURATED ones — measured a
+        // brand blue shifting (39,182,229)→(52,192,226), washed-out. Our content
+        // is HD/4K BT.709; tag + convert as 709 so the round-trip is consistent.
+        // (Follow-up: plumb the *source* colour space through for SD/601 inputs.)
+        set(kVTCompressionPropertyKey_ColorPrimaries, kCVImageBufferColorPrimaries_ITU_R_709_2)
+        set(kVTCompressionPropertyKey_TransferFunction, kCVImageBufferTransferFunction_ITU_R_709_2)
+        set(kVTCompressionPropertyKey_YCbCrMatrix, kCVImageBufferYCbCrMatrix_ITU_R_709_2)
+
         VTCompressionSessionPrepareToEncodeFrames(session)
 
         // HEVC/H.264 encode runs on the Apple-silicon media engine.
