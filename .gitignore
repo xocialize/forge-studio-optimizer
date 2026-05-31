@@ -38,5 +38,14 @@ __pycache__/
 # Proprietary real-signage eval set (IBM Think 26) — local only
 Tests/Corpus/signage-real/
 
+# Proprietary client eval content (IBM, Snowflake, etc.) — local eval ONLY,
+# never committed. Media/frames live OFF-REPO (../forge_*_eval); these patterns
+# are a defensive backstop in case anything lands inside the tree.
+data/
+**/*_eval/
+*_client_eval/
+snowflake*/
+Snowflake*/
+
 # Swift coverage artifact
 *.profraw
