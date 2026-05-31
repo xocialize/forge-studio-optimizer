@@ -10,10 +10,18 @@ This is the native productization of `Tools/vmaf_target_search.py` (the deep-
 research prototype). It runs the whole shipped path — FormatBridge decode → VT
 constant-quality search → final HEVC encode — and reports real numbers.
 
+> **Reference-correctness note (2026-05-31, #55):** these numbers were
+> re-validated after fixing a VMAF *reference* bug. The reference is now built by
+> ffmpeg-decoding the source frame range (`trim=start_frame:end_frame`, bt709),
+> NOT by repacking our NV12 frames (which corrupted it ~3–6 pts). **Rigorously
+> cross-checked: the pipeline's achieved VMAF equals an independent ffmpeg
+> measurement (98.55 == 98.55).** The 63% below is confirmed, not the artifact of
+> a broken harness.
+
 ## Result (general-animation-01.mp4 — 1080p/24fps, 5.23 Mbps H.264)
 
-First 120-frame sample (5.0 s). Reference: lossless ffv1 of the same decoded
-NV12 frames. Sample-encode binary search over the VT quality knob.
+First 120-frame sample (5.0 s). Reference: lossless ffv1 of the source frame
+range, bt709. Sample-encode binary search over the VT quality knob.
 
 | target VMAF | chosen quality | achieved VMAF | probes | targeted bitrate | savings vs source |
 |---|---|---|---|---|---|
