@@ -284,27 +284,13 @@ struct QualityTargetCLI {
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmp) }
 
-        // Per-shot search + encode.
-        let clock = Date()
-        var shotFiles: [URL] = []
-        var perShotBytes = 0
-        for (i, r) in shots.enumerated() {
-            let shotFrames = Array(frames[r])
-            let ref = tmp.appendingPathComponent("ref-\(i).mkv")
-            try buildReference(source: o.input, startFrame: r.lowerBound, count: r.count,
-                               to: ref, ffmpeg: ffmpeg)
-            let shotOut = tmp.appendingPathComponent("shot-\(i).mp4")
-            let res = try await encoder.encode(frames: shotFrames, reference: ref,
-                                               output: shotOut, settings: settings)
-            shotFiles.append(shotOut)
-            perShotBytes += fileSize(shotOut)
-            log("  shot \(i): \(r.count) frames  q=\(fmt(Double(res.quality), 3))  "
-                + "VMAF=\(fmt(res.achievedScore))  \(fmt(Double(fileSize(shotOut)) / 1e6)) MB")
-        }
-        try concat(shotFiles, to: out, ffmpeg: ffmpeg)
-        let perShotSecs = Date().timeIntervalSince(clock)
-
-        // Per-title baseline: one search/quality for the whole clip.
+        // Per-title baseline FIRST: its quality is the CAP for per-shot. Without
+        // the cap, forcing every shot to the VMAF *floor* over-serves hard shots
+        // (per-title lets them ride lower, where motion masks artifacts, and banks
+        // easy shots high) — so naive per-shot grows the expensive shots and loses.
+        // Capping at the per-title quality means a hard shot is never richer than
+        // per-title while easy shots still drop below → net savings, minus the
+        // per-segment keyframe overhead.
         let fullRef = tmp.appendingPathComponent("ref-full.mkv")
         try buildReference(source: o.input, startFrame: 0, count: frames.count,
                            to: fullRef, ffmpeg: ffmpeg)
@@ -312,22 +298,53 @@ struct QualityTargetCLI {
         let ptRes = try await encoder.encode(frames: frames, reference: fullRef,
                                              output: ptOut, settings: settings)
         let ptBytes = fileSize(ptOut)
-        let stitchedBytes = fileSize(out)
+        log("per-title : q=\(fmt(Double(ptRes.quality), 3))  VMAF=\(fmt(ptRes.achievedScore))  "
+            + "\(fmt(Double(ptBytes) / 1e6)) MB")
+
+        // Per-shot search, CAPPED at the per-title quality.
+        let lo = search.qualityRange.lowerBound
+        let cap = max(lo, ptRes.quality)
+        let cappedSearch = QualityTargetSearch(targetScore: o.targetVMAF, slack: o.slack,
+                                               qualityRange: lo ... cap, maxProbes: o.maxProbes)
+        let cappedEncoder = FormatBridgeFactory.makeQualityTargetEncoder(scorer: scorer, search: cappedSearch)
+        let clock = Date()
+        var shotFiles: [URL] = []
+        for (i, r) in shots.enumerated() {
+            let shotFrames = Array(frames[r])
+            let ref = tmp.appendingPathComponent("ref-\(i).mkv")
+            try buildReference(source: o.input, startFrame: r.lowerBound, count: r.count,
+                               to: ref, ffmpeg: ffmpeg)
+            let shotOut = tmp.appendingPathComponent("shot-\(i).mp4")
+            let res = try await cappedEncoder.encode(frames: shotFrames, reference: ref,
+                                                     output: shotOut, settings: settings)
+            shotFiles.append(shotOut)
+            log("  shot \(i): \(r.count) frames  q=\(fmt(Double(res.quality), 3))  "
+                + "VMAF=\(fmt(res.achievedScore))  \(fmt(Double(fileSize(shotOut)) / 1e6)) MB")
+        }
+        let stitched = tmp.appendingPathComponent("pershot.mp4")
+        try concat(shotFiles, to: stitched, ffmpeg: ffmpeg)
+        let perShotSecs = Date().timeIntervalSince(clock)
+        let stitchedBytes = fileSize(stitched)
+
+        // Ship the smaller of the two — per-shot only when it actually pays.
+        let usePerShot = stitchedBytes < ptBytes
+        try? FileManager.default.removeItem(at: out)
+        try FileManager.default.copyItem(at: usePerShot ? stitched : ptOut, to: out)
 
         // Report.
         let secs = Double(frames.count) / fps
         let br = { (b: Int) in fmt(Double(b) * 8 / max(secs, 1e-6) / 1e6) }
         log("")
-        log("── per-shot vs per-title ───────────────────────────────")
-        log("per-title : q=\(fmt(Double(ptRes.quality), 3))  VMAF=\(fmt(ptRes.achievedScore))  "
-            + "\(fmt(Double(ptBytes) / 1e6)) MB  →  \(br(ptBytes)) Mbps")
-        log("per-shot  : \(shots.count) shots  \(fmt(Double(stitchedBytes) / 1e6)) MB  →  \(br(stitchedBytes)) Mbps "
-            + "(\(fmt(perShotSecs)) s)")
+        log("── per-shot (capped @ q\(fmt(Double(ptRes.quality), 3))) vs per-title ──")
+        log("per-title : \(fmt(Double(ptBytes) / 1e6)) MB  →  \(br(ptBytes)) Mbps")
+        log("per-shot  : \(shots.count) shots  \(fmt(Double(stitchedBytes) / 1e6)) MB  →  "
+            + "\(br(stitchedBytes)) Mbps  (\(fmt(perShotSecs)) s)")
         if ptBytes > 0 {
-            let win = (1.0 - Double(stitchedBytes) / Double(ptBytes)) * 100.0
-            log(String(format: "PER-SHOT WIN : %.1f%% smaller than per-title at the same VMAF floor", win))
+            let delta = (1.0 - Double(stitchedBytes) / Double(ptBytes)) * 100.0
+            log(String(format: "PER-SHOT %@: %+.1f%% vs per-title  →  shipped %@",
+                       delta >= 0 ? "WIN " : "LOSS", delta, usePerShot ? "per-shot" : "per-title"))
         }
-        log("kept     : \(out.path)")
+        log("shipped  : \(out.path)")
     }
 
     /// Normalised luma histogram (NV12 Y-plane, sub-sampled) — the shot-detector
