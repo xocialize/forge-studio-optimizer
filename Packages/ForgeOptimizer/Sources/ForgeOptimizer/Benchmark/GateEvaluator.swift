@@ -141,6 +141,25 @@ public struct GateEvaluator: Sendable {
             )
         }
 
+        // Subset N/A: a subset-specific optimizer gate with no matching runs
+        // (e.g. the general compression gate on a signage-only run, or vice
+        // versa) is NOT a failure — mark it N/A so a partial-corpus run doesn't
+        // false-fail. The §4 gate is validated where its subset exists.
+        if let (lvl, sub) = Self.gateLevelSubset(definition),
+           optimizerRuns(in: report, level: lvl, subset: sub).isEmpty {
+            return GateResult(
+                gateID: definition.gateID,
+                description: "\(definition.description) [N/A: no \(sub) clips at \(lvl.rawValue)]",
+                comparison: definition.comparison,
+                target: definition.target,
+                actual: definition.target,   // neutral value — passes its own comparison
+                passed: true,
+                hardwareRequired: definition.hardwareRequired,
+                corpusSubset: definition.corpusSubset,
+                tolerance: definition.tolerance
+            )
+        }
+
         let actual = computeActual(for: definition, in: report)
         let passed = Self.compare(
             actual: actual,
@@ -177,6 +196,20 @@ public struct GateEvaluator: Sendable {
         case .lt:  return actual <  target + slack
         case .gt:  return actual >  target - slack
         case .eq:  return abs(actual - target) <= slack
+        }
+    }
+
+    /// The (level, subset) an optimizer-backed gate reads, for the N/A check.
+    /// Returns nil for gates not backed by an optimizer subset (bundle size,
+    /// quality regressor).
+    static func gateLevelSubset(
+        _ d: GateDefinition
+    ) -> (OptimizerRun.OptimizationLevel, GateResult.CorpusSubset)? {
+        switch d.gateID {
+        case "vmaf_balanced_min":        return (.balanced, d.corpusSubset ?? .all)
+        case "compression_balanced_min": return (.balanced, d.corpusSubset ?? .general)
+        case "compression_signage_max_min": return (.maximum, d.corpusSubset ?? .signage)
+        default: return nil
         }
     }
 

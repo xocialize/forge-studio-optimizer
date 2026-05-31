@@ -461,7 +461,12 @@ func run(_ opts: RunnerOptions) async throws {
     // was included. This is the harness-side derivation per schema §4
     // CompressionMetrics.ratioVsBaseline — the suite itself doesn't
     // know which level is the baseline.
-    let report = try await postProcessCompression(suite: suite)
+    // EXCEPT in --crf mode: runCompressionCRFPass already sets savings vs the
+    // SOURCE (the product metric, ADR-0012). postProcess would overwrite that
+    // with a vs-.off value (≈0 on clean content). So skip it for CRF runs.
+    let report = opts.crf == nil
+        ? try await postProcessCompression(suite: suite)
+        : try await suite.emit()
 
     // Emit. If the run had partials, write a PARTIAL-prefixed file
     // name; otherwise honor the caller's --output exactly.
