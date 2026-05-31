@@ -200,9 +200,10 @@ Reports (local): `signage-sr-report.json` (clean-LR), `signage-hd4k-report.json`
 
 ## Next (Forge side)
 
-1. SR pass over the 6 native-4K sources (downscale÷4→SR×4→VMAF vs master) and the
-   HD→4K test (Vimeo-HD→SR→VMAF vs master *and* vs Vimeo-4K) → fill a Forge column
-   next to the column-B bar above.
-2. After NAFNet (B.3→B.5): Forge optimize each clip, compare bitrate-at-equal-VMAF
-   vs the Vimeo column-A/C numbers → the §4 compression gate (#40) on real signage.
+1. ✅ SR pass done (tables above) — Forge SR 98.6 mean, HD→4K +13 over bicubic.
+2. ✅ Compression — NAFNet wired (B.5) + CRF-vs-source measured (ADR-0012, #40).
+   First: `signage_smarter` @ CRF 23 → **balanced 62.6% savings @ VMAF 98.74**
+   (off 64.6% @ 98.50) vs the 3.73 MB source — clears ≥35%/≥90. NAFNet ≈ neutral
+   on clean masters (~2% size for +0.24 VMAF); savings come from the smart
+   re-encode. Remaining: gate-flag plumbing + full subset (ADR-0012 §Consequences).
 3. Local manifest lives in `IBM_Pairs/` (off-repo); only this spec is committed.

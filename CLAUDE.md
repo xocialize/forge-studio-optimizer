@@ -69,6 +69,8 @@ $RUNNER --corpus ../../Tests/Corpus/manifest.json \
 | 0008 | **Phase C.4 verdict — ship SRVGGNet-general, reject EfRLFN** (−26.8 VMAF) | Accepted |
 | 0009 | **Drop realtime requirements** (separate-project concern); 2 throughput gates removed | Accepted |
 | 0010 | **NAFNet B.3 training data** — domain IBM signage frames (not DIV2K); proprietary handling (frames/corpus never committed, only weights ship) | Accepted |
+| 0011 | **Build runnable MLX with xcodebuild** (not `swift build` — metallib); resources **per-file `.copy`** (not `.copy("Resources")` — nesting) | Accepted |
+| 0012 | **Compression savings = CRF-encode vs source** (`--crf`); fixed-bitrate harness can't measure it | Accepted |
 
 Benchmark report: `Docs/Benchmarks/benchmark-c4-ab-v2-e06ff85.json`. Real-signage eval spec: `Docs/Benchmarks/real-signage-eval-set.md`.
 
@@ -78,6 +80,7 @@ Benchmark report: `Docs/Benchmarks/benchmark-c4-ab-v2-e06ff85.json`. Real-signag
 - **Weight loading** (MLX): `MLX.loadArrays` → `ModuleParameters.unflattened` → `Module.update(verify: .noUnusedKeys)`. Key remap where safetensors keys ≠ `@ModuleInfo` flatten.
 - **Pixel-shuffle NHWC** must split channels `(C, r, r)` to match PyTorch `nn.PixelShuffle` (mlx-porting pitfall #7).
 - **NV12 hazard**: `FFmpegDecoder` emits NV12 (biplanar YUV). Any byte-level `CVPixelBufferGetBaseAddress` reader must `ensureBGRA()` first (CoreImage) — else sheared garbage. This bug hid behind an SSIM=1.0 tautology and was only caught by *looking at output pixels*. **When validating model output, extract a frame and look.**
+- **fp16 reductions overflow at video resolution**: an fp16 *global* spatial mean/sum (e.g. NAFNet SCA's average-pool over H×W) overflows fp16's ~65504 ceiling at ≥540×960 → NaN → garbage output. Invisible at 128² (unit tests) and in fp32 (parity) — only a real 4K run exposed it (VMAF 3.17, #40). **Do any global pool/sum in fp32, cast back.** Lesson: validate fp16 inference at *production resolution*, not just small test tiles.
 - **Parity tests** for every weight conversion (PyTorch↔MLX): single-layer max_abs < 1e-3 @ FP16, full pass < 1e-2.
 - **Benchmark gates**: 5 quality/size/compression gates (realtime gates removed, ADR-0009). Throughput still measured (`fps_mean`/`realtime_factor`), not gated.
 - **ADRs over inline rationale**; per-package `LICENSES.md` + `Resources/MODELS.md`.
@@ -97,11 +100,34 @@ Benchmark report: `Docs/Benchmarks/benchmark-c4-ab-v2-e06ff85.json`. Real-signag
   Proprietary frames/corpus stay under gitignored `data/` — only weights ship.
   Follow-ups: vectorize the BGRA↔RGB loop (perf); tiling for 4K on 16 GB (scale).
 - **Compression-gate validation (#40)** (§4 ≥35% @Balanced, VMAF≥90, ≥55% signage
-  @Maximum) — **now UNBLOCKED** (B.5 landed). Run a full optimizer benchmark
-  (not `--upscaler-pass-only`) with the xcodebuild runner over the corpus.
+  @Maximum) — **IN PROGRESS, gate intent met** (ADR-0012). Built the CRF-vs-source
+  path (`runCompressionCRFPass`, `--crf` flag) since the fixed-bitrate harness
+  can't measure savings. First result (signage_smarter, CRF 23): **balanced 62.6%
+  savings @ VMAF 98.74** (off 64.6% @ 98.50) — clears ≥35%/≥90. **To flip the gate
+  `passed` flag green** (plumbing, not numbers): (1) skip `postProcessCompression`
+  when `--crf` set (it overwrites source-based savings with a vs-`.off` ≈0 value);
+  (2) corpus composition — `compression_balanced_min` reads the **general** subset
+  (needs the royalty-free corpus fetched: `Tests/Corpus/scripts/fetch_corpus.sh`)
+  and `compression_signage_max_min` reads **signage @ maximum**; empty subsets
+  should be N/A not fail. Then run the full subset+corpus. (CRF run ~1.5 fps at
+  4K — slow; perf follow-ups above still apply.)
 - **SigLIP2 NR-IQA** training + integration (retires the v0.3 KADID non-commercial scorer).
 - **12-clip real-signage eval set** (IBM Think 26, local/proprietary — not committed): `Docs/Benchmarks/real-signage-eval-set.md`.
 - Real-signage finding: shipped playback SR scored **97.8–99.7 VMAF** on real content incl. text → PRD VMAF≥90 met; Phase F (text-aware SR) deprioritized.
+
+### Resume next (onsite, good internet — 2026-05-31 handoff)
+
+NAFNet track **B.1→B.5 done + shipping** (trained 41.515 dB, converted, wired,
+tested). Entry-tier product story validated on real IBM signage: **SR HD→4K +13
+VMAF** vs bicubic, **optimize 62.6% smaller @ 98.74 VMAF**. Immediate next:
+1. **Finish #40** (ADR-0012 plumbing): skip `postProcessCompression` for `--crf`
+   + empty-subset = N/A; **fetch the royalty-free corpus** (needs internet:
+   `cd Tests/Corpus && ./scripts/fetch_corpus.sh`); run full subset (general @
+   balanced + signage @ maximum). Then the gate flag is green.
+2. Optional perf: vectorize BGRA↔RGB; tiling for 4K on 16 GB.
+3. Then **#23 SigLIP2 NR-IQA** + **#15 PocketDVDNet** (B.6) remain on the model side.
+Build reminder: **xcodebuild** for runnable MLX (ADR-0011); `swift build` only
+compile-checks. ~6 build cycles/session is normal — budget for it.
 
 ## Provenance
 
