@@ -547,32 +547,52 @@ public extension SigLIP2VisionModel {
             throw SigLIP2WeightError.loadFailed(String(describing: error))
         }
 
-        // Filter + remap keys.
+        // Filter + remap + dequantize.
+        //
+        // The source is the mlx-community 8-bit checkpoint (already MLX-converted,
+        // NOT a raw PyTorch dump), so three things differ from the original naive
+        // port (which was only tested against zeros and never loaded real weights):
+        //   1. Keys are double-prefixed `vision_model.vision_model.…` — strip ALL
+        //      leading `vision_model.` segments (stripping one left `vision_model.…`,
+        //      which matched nothing → real weights silently ignored → random init).
+        //   2. Linear weights are 8-bit affine-quantized: `*.weight` is packed U32
+        //      with sibling `*.scales` / `*.biases` (group_size=64, bits=8). We
+        //      dequantize back to float here (the backbone then runs FP, so its
+        //      embeddings match the FP backbone the NR-IQA head trained on).
+        //   3. The patch_embedding conv weight is ALREADY NHWC [out, kH, kW, in] in
+        //      the MLX checkpoint — it must NOT be transposed (the old NCHW→NHWC
+        //      transpose mangled it).
+        func canonical(_ s: String) -> String {
+            var k = s
+            while k.hasPrefix("vision_model.") { k.removeFirst("vision_model.".count) }
+            return k
+        }
         var mapped: [String: MLXArray] = [:]
         for (key, value) in rawArrays {
-            // Drop text encoder + pooling head + quantization metadata.
-            if key.contains(".scales") || key.contains(".biases")
-                || key.hasPrefix("text_model.") || key.contains(".head.")
+            // Drop text encoder, MAP pooling head, and the quant-metadata keys
+            // themselves (consumed alongside their weight below).
+            if key.hasPrefix("text_model.") || key.contains(".head.")
                 || key.hasPrefix("vision_model.head.") || key.hasPrefix("head.")
+                || key.hasSuffix(".scales") || key.hasSuffix(".biases")
                 || key == "logit_scale" || key == "logit_bias" {
                 continue
             }
 
-            // Strip `vision_model.` prefix if present.
-            var k = key
-            if k.hasPrefix("vision_model.") {
-                k.removeFirst("vision_model.".count)
+            let k = canonical(key)
+
+            // Quantized weight? (packed U32 with scales/biases siblings) → dequantize.
+            if key.hasSuffix(".weight"), value.dtype == .uint32 {
+                let base = String(key.dropLast(".weight".count))
+                if let scales = rawArrays[base + ".scales"] {
+                    let biases = rawArrays[base + ".biases"]
+                    mapped[k] = dequantized(value, scales: scales, biases: biases,
+                                            groupSize: 64, bits: 8)
+                    continue
+                }
             }
 
-            // Conv2d patch_embedding weight: NCHW [out, in, kH, kW] →
-            // NHWC [out, kH, kW, in]. The Linear layers in the encoder
-            // already have the standard [out, in] layout and need no
-            // transpose. Detect by key suffix.
-            if k == "embeddings.patch_embedding.weight" && value.shape.count == 4 {
-                mapped[k] = value.transposed(0, 2, 3, 1)
-            } else {
-                mapped[k] = value
-            }
+            // Non-quantized tensor: load as-is. patch_embedding is already NHWC.
+            mapped[k] = value
         }
 
         let loaded = ModuleParameters.unflattened(mapped)
