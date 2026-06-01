@@ -74,6 +74,7 @@ $RUNNER --corpus ../../Tests/Corpus/manifest.json \
 | 0013 | **VideoToolbox-first ship encoder** — HEVC default / H.264 fallback (hardware, constant-quality); AV1 (SVT) + x264 conditional/opt-in | Accepted |
 | 0014 | **Revise §4 compression gate** — VMAF-targeted vs-flat savings on high-bitrate sources; **implemented (#54)**: threshold calibrated **≥15%** (measured 16.6%, PASS), fixed-CRF gates retired from GateEvaluator (v1.1, 3 gates), gated by `Tools/quality_target_gate.py` | Accepted |
 | 0015 | **Per-shot deferred on VideoToolbox** — capped per-shot ties per-title (~0%); VT constant-quality already adapts per-frame. Don't ship; revisit only with fixed-CRF x264 (#53) | Accepted |
+| 0016 | **Step 3 IQA gate = scoped "restoration-pays" (#56)** — v2 SigLIP2 head (data-mix iteration: frame-level + multi-res + DISTS labels) scores low where NAFNet pays (encoded/photographic), high on flat-vector (045/094, where orig≈restored = a wash). Ship default-on, threshold ~0.78; revisit fine-tuning post-ImageBridge | Accepted |
 
 Benchmark report: `Docs/Benchmarks/benchmark-c4-ab-v2-e06ff85.json`. Real-signage eval spec: `Docs/Benchmarks/real-signage-eval-set.md`.
 
@@ -89,7 +90,8 @@ Benchmark report: `Docs/Benchmarks/benchmark-c4-ab-v2-e06ff85.json`. Real-signag
 - **Per-shot doesn't pay on VideoToolbox (ADR-0015)**: naive per-shot LOSES (−18 to −26%: IDR/warmup overhead + over-serving hard shots); **capped** per-shot (shot quality ≤ per-title quality, ship `min(per-shot, per-title)`) only TIES (~0%) — because VT constant-quality already adapts bits per-frame, so easy shots are already cheap and the cap bounds the upside. The research's per-shot win is vs a fixed-CRF baseline; ours is VBR. Don't ship per-shot for VT; revisit only with fixed-CRF x264 (#53).
 - **VMAF framesync desync across timebases**: `libvmaf` pairs its two inputs by **PTS**. If test and reference live in different containers/timebases (e.g. ffv1-in-mkv @ 1/1000 vs HEVC-in-mp4 @ 1/12288), the coarser timebase's PTS rounding desyncs the pairing — motion frames compare against neighbours and VMAF collapses (a near-lossless encode measured ~70 vs its true ~93; frame-by-index PSNR was 63 dB, so frames *were* aligned by index — only the timestamp pairing was off). **Frame-lock both inputs (`settb=AVTB,setpts=N`) so pairing is by frame index.** Plain `setpts=N` is insufficient (each stream keeps its own timebase). Fixed in `QualityMeasure.vmaf`; no-op when inputs already share a pipeline.
 - **fp16 reductions overflow at video resolution**: an fp16 *global* spatial mean/sum (e.g. NAFNet SCA's average-pool over H×W) overflows fp16's ~65504 ceiling at ≥540×960 → NaN → garbage output. Invisible at 128² (unit tests) and in fp32 (parity) — only a real 4K run exposed it (VMAF 3.17, #40). **Do any global pool/sum in fp32, cast back.** Lesson: validate fp16 inference at *production resolution*, not just small test tiles.
-- **Parity tests** for every weight conversion (PyTorch↔MLX): single-layer max_abs < 1e-3 @ FP16, full pass < 1e-2.
+- **Parity tests** for every weight conversion (PyTorch↔MLX): single-layer max_abs < 1e-3 @ FP16, full pass < 1e-2. **A port "passes" only against REAL weights, not zeros** (#57): #27's SigLIP2 `loadWeights` shipped "complete" with shape-only tests against zeros and was silently broken three ways on the real mlx-community 8-bit checkpoint — (a) doubled `vision_model.vision_model.` prefix half-stripped → keys unmatched → backbone ran on **random init**; (b) 8-bit Linears are **packed U32 + sibling `.scales`/`.biases`** (group_size=64, bits=8), not fp — must `dequantized(w,scales,biases,64,8)` on load, not load the packed stem; (c) the conv `patch_embedding` is **already NHWC** in the MLX checkpoint (no NCHW→NHWC transpose). Fixed + parity-validated (cosine **0.9999** vs PyTorch FP) → quant gap negligible. **MLX `dequantized`/`loadArrays` do NOT honor the scoped CPU pin** (`withDefaultDevice(.cpu)`) → real-weight MLX tests must run via **`xcodebuild test -scheme ForgeOptimizer-Package`**, not `swift test` (lazy shape-only tests survive `swift test`; anything that evaluates a quantized op needs the staged metallib). Ref generator: `Scripts/gen_siglip2_parity_ref.py`; test: `SigLIP2ParityTests`.
+- **AVAssetWriter interleave deadlock — defer, don't block (#32)**: a single-threaded decode→encode loop that pushes packets in demuxer order will **deadlock** when one track races ahead — the writer sets that input `isReadyForMoreMediaData = false` until the other track catches up, but the only way to advance the other track is to push it, which a caller block-spinning inside `appendVideoFrame` can't reach (the hybrid WebM/MKV+audio→MP4 path stalled ~2/3 of the time, masked as a "flaky test"). Fix: when an input isn't ready, **queue the buffer and return** (retaining a `CVPixelBufferPool` buffer is safe — the pool won't recycle it, so no copy) so the loop pushes the other track; and at `finish()` **mark each track finished as its queue empties** (a track at EOS otherwise holds the other not-ready). `NativeEncoderImpl`, validated 15/15 + suite 53/53.
 - **Benchmark gates**: 5 quality/size/compression gates (realtime gates removed, ADR-0009). Throughput still measured (`fps_mean`/`realtime_factor`), not gated.
 - **ADRs over inline rationale**; per-package `LICENSES.md` + `Resources/MODELS.md`.
 
@@ -125,54 +127,42 @@ Benchmark report: `Docs/Benchmarks/benchmark-c4-ab-v2-e06ff85.json`. Real-signag
 - **12-clip real-signage eval set** (IBM Think 26, local/proprietary — not committed): `Docs/Benchmarks/real-signage-eval-set.md`.
 - Real-signage finding: shipped playback SR scored **97.8–99.7 VMAF** on real content incl. text → PRD VMAF≥90 met; Phase F (text-aware SR) deprioritized.
 
-### Resume next (2026-05-31 handoff — end of a big session)
+### Resume next (2026-06-01 handoff)
 
-The **entire VideoToolbox compression story is built, validated, and gated.** NAFNet
-track B.1→B.5 ships (trained, wired). Encoder roadmap (research Step 0→6):
+The **VideoToolbox compression story (Steps 0/1) + the §4 gate ship and are validated.**
+Steps 0/1 = **63% @ VMAF≥95 / 79% @ ≥90** vs source (cross-checked); Step 2 deferred
+(ADR-0015, capped per-shot ties); #54 gate PASS (16.6% vs-flat ≥15%). NAFNet B.1→B.5 ships.
 
-- **Step 0 ✅** native VideoToolbox constant-quality encoder (`VideoToolboxEncoderImpl`).
-- **Step 1 ✅** VMAF-targeted search (`QualityTargetSearch` + `VideoToolboxQualityTarget`
-  `Encoder` + `FFmpegVMAFScorer`, compose via `makeQualityTargetEncoder`). Validated
-  end-to-end via `forge-quality-target`: **63% @ VMAF≥95 / 79% @ VMAF≥90** vs source,
-  cross-checked against independent ffmpeg (`step1-native-validation.md`).
-- **Step 2 ✅ deferred (ADR-0015)** — `ShotDetector` built; capped per-shot only TIES
-  per-title (~0%) on VT constant-quality (already per-frame adaptive). `--per-shot`
-  ships `min(per-shot, per-title)`, never regresses. Revisit only with fixed-CRF x264 (#53).
-- **#54 ✅ ADR-0014 gate** — `Tools/quality_target_gate.py` (uses `forge-quality-target`
-  `--fixed/--json`): per-title-targeted **16.6% smaller than the flat floor baseline** on
-  the ≥8 Mbps subset → **PASS** at the calibrated ≥15% (the 63% is vs-source; 16.6% is the
-  source-independent CI guard). Fixed-CRF gates retired from GateEvaluator (v1.1, 3 gates).
-- **Step 3 (#51) — architecture ✅, BLOCKED on #56.** IQA-gate seam built
-  (`NoReferenceQualityScoring` + `GatedRestorationProcessor` + opt-in `makeGatedChain` +
-  `BlockinessQualityScorer` baseline + `forge-quality-target --score`). Validated the cheap
-  blockiness heuristic is UNFIT (scored the worst Snowflake 4K@1.9 bad file 0.98 "clean" →
-  would skip; our signage degrades as ringing, not grid-blocking). Default stays
-  unconditional NAFNet. (`step3-iqa-gate-findings.md`)
+**Step 3 (#51) — IQA gate: decided + de-risked, one wiring stretch left.**
+- **#56 ✅ (ADR-0016)** — the data-mix iteration resolved the v1 gate gap. v2 head
+  (`generate_iqa_dataset.py` reworked: **frame-level** degrade + **multi-res** + heavier
+  params + resumable; even-dims bug fixed) → `data/iqa_ds2` (4197 tiles) → **val SRCC 0.902 /
+  PLCC 0.956**. Real-frame eval reframed the 045 "miss" as **correct**: it's a working
+  **"does-restoration-pay" gate** — low where NAFNet pays (crush 0.66, dvd4 0.58), high on
+  flat-vector 045/094 where NAFNet is a **wash** (orig 0.970 → restored 0.968; 64-patch min
+  still ≈ clean). Threshold ~0.78. **Decision: ship scoped for signage; revisit fine-tuning
+  post-ImageBridge.** (`step3-iqa-gate-findings.md` Update 2026-06-01b + ADR-0016.)
+- **#57 ✅** — fixing #27's SigLIP2 backbone loader was a prerequisite (it was broken three
+  ways on the real 8-bit checkpoint; see Conventions). Fixed + **parity-validated cosine
+  0.9999** vs PyTorch FP → quant gap negligible, head + ~0.78 threshold transfer to Swift.
+- **▶ REMAINING (the gate wiring, now unblocked):** (1) load `data/iqa_head2/
+  siglip2_iqa_head.safetensors` into `SigLIP2_IQA` + ship to `ForgeOptimizer/.../Resources/`
+  (head keys fc1/fc2 match); (2) a `NoReferenceQualityScoring` adapter — CVPixelBuffer → 224
+  patches → NHWC MLXArray (mean/std 0.5) → `SigLIP2QualityScorer.score()` → patch-mean Float
+  (`poolerOutput` is already mean-pool); (3) verify clean>degraded ranking + the ~0.78 point
+  hold in Swift on `data/iqa_eval_frames/`; (4) flip `makeGatedChain` default-on (replace the
+  `BlockinessQualityScorer` baseline); (5) run via **xcodebuild**. Eval frames + v2 head live
+  OFF-REPO under `Packages/ForgeTraining/data/` (gitignored; weights ship per ADR-0010).
 
-**▶ #56 (NR-IQA head) — pipeline + head built; gate-detection gap is the open item.**
-Licensing settled: academic IQA datasets are NC/research → **generate our own** pseudo-MOS
-(`generate_iqa_dataset.py`: our codecs + DISTS labels, license-clean) → train the tiny head
-on the frozen 8-bit SigLIP2 backbone (`train_iqa_head.py`) → `eval_iqa_head.py`. Trained on
-6,453 signage-master tiles: **val SRCC 0.82 / PLCC 0.97** (strong fit to synthetic labels).
-**BUT real-frame eval shows it doesn't gate real bad files** — Snowflake 045 (4K@1.9 vector)
-scores 0.97 "clean", dvd-mpeg2 0.92; it detects the *synthetic photographic* degradation it
-trained on (crf45→0.68) but not the real distribution. (`step3-iqa-gate-findings.md`.)
-Artifacts preserved OFF-REPO: `Packages/ForgeTraining/data/iqa_head/siglip2_iqa_head.safetensors`
-(789 KB) + `data/iqa_ds/` (6,453 tiles). **RESUME = pick the path (Dustin, deferred):**
-(1) data-mix iteration — re-gen with real-matched degradations (4K-vector@~1.9 Mbps, low-res
-MPEG-2) + real degraded examples, retrain, re-eval on 045/dvd; (2) defer the gate + ship
-always-NAFNet (Step-2-style ADR), keep the head for ImageBridge's still metric; (3) scope to
-photographic. The head is already a fine *general* quality predictor → seeds ImageBridge.
-Gate stays opt-in; default = unconditional NAFNet.
+Other remaining: close **#33** (stale — superseded by ADR-0013; the benchmark's inlined
+AVAssetWriter is fine, "migrate to NativeEncoder" no longer applies — decide close/re-scope);
+**#52** Step 4 (SVT-AV1 opt-in — needs SVT-AV1 vendored), #53 (x264/convex-hull), #15 (PocketDVDNet),
+#23 (QualiCLIP+ Plan-B / post-ImageBridge head fine-tune).
 
-Other remaining: **#52** Step 4 (SVT-AV1 opt-in tier — needs SVT-AV1 vendored, internet),
-#53 (conditional x264 / convex-hull), #15 (PocketDVDNet).
-
-**Bugs caught this session by validating on REAL content (the discipline that paid off
-3×):** VMAF reference corruption (#55 — Step-1 numbers were measured against a broken
-reference; trim-not-setpts fix, cross-checked 98.55==98.55), VideoToolbox untagged-output /
-BT.601-vs-709 colour drift (pin 709), stale pre-relocation manifest path in `locateManifest`,
-and the blockiness-heuristic mis-gate. All in Conventions.
+**Validate-on-REAL-content catches keep paying off** (now 5×): VMAF reference corruption (#55),
+BT.601-vs-709 colour drift, stale manifest path, blockiness mis-gate, and this session's two —
+the AVAssetWriter interleave **deadlock** (#32, a real bug masked as a flaky test) and #27's
+**broken-against-real-weights** SigLIP2 loader (#57). All distilled into Conventions.
 
 Build reminder: **xcodebuild** for runnable MLX (ADR-0011); `swift build` only
 compile-checks; FormatBridge/forge-quality-target VMAF+per-shot paths run under `swift
