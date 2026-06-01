@@ -165,13 +165,25 @@ struct QualityTargetCLI {
         try await decoder.open(url: o.input)
         var frames: [CVPixelBuffer] = []
         frames.reserveCapacity(o.maxFrames)
+        // Skip a leading near-constant (blank/fade) lead-in so the sample reflects
+        // real content (#60). A flat intro is unrepresentative AND makes the VMAF
+        // target spuriously unreachable — 8-bit HEVC bands on near-constant frames,
+        // so the search caps at the ceiling reporting a low VMAF (the capstone
+        // sevilla/ferrari "failures"). Bounded so an all-flat clip still samples.
+        var startFrame = 0
+        let maxSkip = o.maxFrames * 4
+        while frames.isEmpty, startFrame < maxSkip, let f = try await decoder.decodeNextVideoFrame() {
+            if lumaStdDev(f.pixelBuffer) >= 3.0 { frames.append(copy(f.pixelBuffer)) }
+            else { startFrame += 1 }
+        }
         while frames.count < o.maxFrames, let f = try await decoder.decodeNextVideoFrame() {
             frames.append(copy(f.pixelBuffer))
         }
         decoder.close()
         guard !frames.isEmpty else { throw CLIError.decodeEmpty }
         let sampleSeconds = Double(frames.count) / fps
-        log("sample   : \(frames.count) frames (\(fmt(sampleSeconds)) s)")
+        log("sample   : \(frames.count) frames (\(fmt(sampleSeconds)) s)"
+            + (startFrame > 0 ? "  [skipped \(startFrame) flat lead-in frames]" : ""))
 
         // 3. Lossless ffv1 reference: ffmpeg decodes the same source frames
         //    (0 ..< count). Frame-index-aligned with our decode (framesync fix).
@@ -180,7 +192,7 @@ struct QualityTargetCLI {
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmp) }
         let reference = tmp.appendingPathComponent("ref.mkv")
-        try buildReference(source: o.input, startFrame: 0, count: frames.count,
+        try buildReference(source: o.input, startFrame: startFrame, count: frames.count,
                            to: reference, ffmpeg: ffmpeg)
 
         // 4. VMAF-targeted encode. With --fixed q the search range is q…q, so it
@@ -441,6 +453,33 @@ struct QualityTargetCLI {
         }
         if count > 0 { for i in 0 ..< bins { hist[i] /= count } }
         return hist
+    }
+
+    /// Subsampled luma standard deviation (NV12 Y-plane) — a cheap "flatness"
+    /// proxy. Near-constant frames (blank/fade intros) score < ~3; real content is
+    /// much higher. Used to skip an unrepresentative flat lead-in (#60).
+    static func lumaStdDev(_ pb: CVPixelBuffer) -> Float {
+        CVPixelBufferLockBaseAddress(pb, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(pb, .readOnly) }
+        let planar = CVPixelBufferIsPlanar(pb)
+        let base = planar ? CVPixelBufferGetBaseAddressOfPlane(pb, 0) : CVPixelBufferGetBaseAddress(pb)
+        guard let base else { return 999 }
+        let bpr = planar ? CVPixelBufferGetBytesPerRowOfPlane(pb, 0) : CVPixelBufferGetBytesPerRow(pb)
+        let w = planar ? CVPixelBufferGetWidthOfPlane(pb, 0) : CVPixelBufferGetWidth(pb)
+        let h = planar ? CVPixelBufferGetHeightOfPlane(pb, 0) : CVPixelBufferGetHeight(pb)
+        let p = base.assumingMemoryBound(to: UInt8.self)
+        let step = max(1, w / 128)
+        var n = 0; var sum = 0.0; var sumSq = 0.0
+        var y = 0
+        while y < h {
+            let row = p + y * bpr
+            var x = 0
+            while x < w { let v = Double(row[x]); sum += v; sumSq += v * v; n += 1; x += step }
+            y += step
+        }
+        guard n > 0 else { return 999 }
+        let mean = sum / Double(n)
+        return Float(max(0, sumSq / Double(n) - mean * mean).squareRoot())
     }
 
     /// Stitch encoded shot files into one via the ffmpeg concat demuxer (-c copy).

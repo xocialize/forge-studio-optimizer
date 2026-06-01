@@ -10,36 +10,40 @@ signage clips, via `forge-quality-target --codec {hevc,av1} --target 95`.
 | signage_abacus (4K) | line-art graphics | 94.8 / 0.74 | 94.7 / **0.39** | av1 ✓ |
 | signage_characters (4K) | flat-color graphics | 95.0 / 0.63 | 94.8 / **0.51** | av1 ✓ |
 | signage_layersb (portrait 4K) | layered graphics | 95.3 / 5.12 | 94.5 / **1.73** | av1 ✓ |
-| signage_ferrari (3240×1920) | **smooth-gradient** graphic | **87.0 / 2.79 ✗** | 95.4 / **0.24** | av1 ✓ |
-| signage_sevilla (3240×1920) | **smooth-gradient** graphic | **83.1 / 2.80 ✗** | 95.8 / **0.13** | av1 ✓ |
+| signage_ferrari (3240×1920, untagged) | gradient graphic | ~~87.0 / 2.79~~ → see below | 95.4 / **0.24** | av1 ✓ |
+| signage_sevilla (3240×1920, untagged) | gradient graphic | ~~83.1 / 2.80~~ → **94.97 / 0.34** when 709-tagged | 95.8 / **0.13** | av1 ✓ |
 
 **Headline:** **AV1 (Step 4) hits VMAF ≥ 95 on every real signage clip at 0.13–1.73 Mbps** — and is
-the clear winner on gradient-heavy content. HEVC (our VT ship encoder) hits target on 3/5 but
-*cannot* on the two smooth-gradient clips even at max quality.
+the clear winner. The HEVC numbers for **ferrari/sevilla above are wrong — a measurement
+artifact** (see below); HEVC actually does fine on those clips too.
 
-## The ferrari/sevilla HEVC "failure" — diagnosed (NOT a resolution bug)
+## The ferrari/sevilla HEVC "failure" — root-caused to an UNTAGGED-COLOR bug (#60→#61)
 
-Both are 3240×1920 (width not ÷16), which first looked like an alignment bug. It isn't —
-diagnosed three ways:
-- **Output is correct**: 3240×1920, decodes, extracted frame is clean (not sheared/garbled).
-- **Measurement is honest**: an independent ffmpeg VMAF agrees exactly (83.12 == 83.12), so it's
-  not a reference artifact (cf. #55).
-- **Root cause = 8-bit HEVC banding on smooth gradients + a flat-intro sample.** The clip is
-  flat-color figures over a smooth pink gradient; its first 96 frames are a near-blank intro. VT
-  HEVC (Main, **8-bit**) bands on smooth gradients → VMAF ~83 *at quality 1.0* (search does 1 probe,
-  reports "target unreachable"). AV1 — even 8-bit — handles flat/gradient regions far better
-  (95.8 on the *same* frames). This refines #59: VT-HEVC is fine on detailed/textured graphics
-  (abacus/characters/layersb hit ~95) but bands on smooth-gradient signage.
+Both are 3240×1920 (width not ÷16), which first looked like an alignment bug, then like 8-bit
+gradient banding. **Both wrong.** The decisive chain (#55 lesson, third time — validate the
+measurement, not just the pipeline):
+- **Output clean**, dims correct, independent VMAF agrees (83.12==83.12) → not a reference build bug.
+- **8-bit HEVC is fine here**: software x265 hits VMAF 97.5/95.2 (intro/mid), and ffmpeg's
+  `hevc_videotoolbox` (Main8) hits **98** on the same frames. Main10 ≈ Main8 (98.2) → **not a
+  banding/codec issue; Main10 NOT needed.**
+- **Root cause: untagged source color-matrix mismatch.** ferrari/sevilla are **untagged**
+  (`color_* = unknown`); abacus is tagged bt709. Our pipeline's FormatBridge decode and the ffmpeg
+  VMAF reference disagree on the matrix for untagged HD → a BT.601-vs-709 color shift VMAF
+  penalizes (→ 83) and the search wastes bits. **Proof:** tagging sevilla bt709 (metadata only, no
+  re-encode) flips our HEVC result from **82.9 @ 2.80 Mbps** → **94.97 @ 0.34 Mbps** (met target).
+  So VT-HEVC is excellent on these clips (near AV1); the capstone numbers were the bug.
 
-## Actionable follow-ups (#60)
+**Corrected positioning:** AV1 and HEVC both do well on this signage; AV1 is smaller (premium for
+AV1-capable targets), HEVC is the universal default. The "HEVC bands on gradients" conclusion was
+wrong — it was a color bug.
 
-1. **Sample representativeness** — the VMAF-target search samples the first `--max-frames` frames;
-   a flat intro (sevilla/ferrari) is unrepresentative. Sample evenly across the clip (or skip
-   leading near-constant frames) so the target reflects real content.
-2. **Main10 (10-bit) HEVC for gradient/graphics content** — 8-bit banding is *the* HEVC weakness
-   on signage gradients; 10-bit HEVC (decodes on modern Apple) would cut it. Evaluate Main10 as the
-   signage HEVC profile. This is a **default-path** quality win.
-3. **Positioning confirmed:** AV1 is the right encoder for gradient-heavy signage (common). Route
-   signage → AV1 where the target decodes it; HEVC stays the universal-compat default.
+## Follow-ups
+
+- **#60 (done):** sample representativeness — skip a flat lead-in so the search reflects real
+  content (helps blank-intro clips like abacus; shipped). Main10 **ruled out** (not needed).
+- **#61 (the real bug):** untagged-source color handling — FormatBridge should assume BT.709 for
+  untagged HD (matching the standard heuristic + the reference), so decode + measurement + ship
+  output all agree. This is potentially a **real ship-output color drift** on untagged sources, not
+  just a measurement artifact (same class as the earlier BT.709 encoder-tag fix, now on decode).
 
 Reproduce: `forge-quality-target --input <clip> --codec {hevc,av1} --target 95 [--av1-preset 8]`.
