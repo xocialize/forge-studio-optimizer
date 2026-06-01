@@ -83,3 +83,53 @@ synthetic tiles.
    most) and default-skip flat/vector content (where NAFNet barely helps); validate that
    the gate decision correlates with actual NAFNet benefit.
 3. The data generator + trainer + eval tooling all stand; only the training *data mix* changes.
+
+---
+
+## Update (2026-06-01b): data-mix iteration done → it's a working **"restoration-pays" gate**
+
+Dustin chose path 1 (data-mix iteration). Implemented in `generate_iqa_dataset.py`:
+- **Frame-level degradation** (`--frame-level`): degrade the *whole* (downscaled) frame, then
+  crop — matches how real low-bitrate encodes actually look (v1 degraded 224 *crops* at a CRF,
+  which doesn't reproduce frame-wide bitrate starvation).
+- **Multi-resolution sources** (`MULTI_RES_LONG_SIDES`): downscale to varied long-sides so the
+  head sees low-res content (the dvd 320×240 regime v1 never trained on).
+- **Heavier params**: mpeg2 down to 0.15 Mbps, hevc to CRF 51.
+- **Resumable** (`--resume`, per-tile flush) so a kill never loses progress.
+- **Bug caught mid-run:** multi-res produced *odd* dimensions → every hevc/av1/mpeg2 degrade
+  silently threw → low-res sources kept only `noise` (exactly backwards). Fixed: force even dims
+  (`_even()` crop). Verified 0 codec failures, 7.0 tiles/src, all 4 codecs balanced.
+
+New dataset `data/iqa_ds2`: **4197 tiles / 600 signage masters**. DISTS labels compress into
+**[0.44, 1.0]** (DISTS distance rarely exceeds ~0.5 in practice). v2 head: **val SRCC 0.902 /
+PLCC 0.956**.
+
+**Real-frame eval (patch-mean, the actual gate test):**
+
+| frame | v1 | **v2** | NAFNet helps? | gate verdict |
+|---|---|---|---|---|
+| clean sports / talkinghead / signage | 0.92–0.95 | 0.87–0.97 | n/a | skip ✓ |
+| synthetic crush (sports→crf45) | 0.68 | **0.66** | yes | **run ✓** |
+| BAD dvd4-mpeg2 (low-res) | (missed) | **0.69 / min 0.58** | yes | **run ✓ (v1 missed)** |
+| BAD dvd-mpeg2 (milder low-res) | 0.92 | 0.84 | yes | borderline skip ⚠ |
+| **BAD 045 / 094 (4K vector)** | 0.97 | 0.95–0.97 | **~no (wash)** | skip ✓ (correct) |
+
+**Two checks that reframed the 045 "failure":**
+1. **Not a sampling miss** — at 64 random patches, 045/094 patch-**min** = 0.898/0.905 ≈
+   clean_signage's 0.894. More crops don't separate them; the head genuinely sees them as clean.
+2. **NAFNet barely moves 045** — scoring original vs NAFNet-restored 045: patch-mean
+   **0.970 → 0.968** (a wash). Restoration on flat-vector files produces ~no perceptual delta,
+   corroborating "NAFNet's benefit was modest anyway" on 045.
+
+**Conclusion:** the v2 head is a **working "does-restoration-pay" gate**: it scores low exactly
+where NAFNet helps (encoded/photographic: crush 0.66, dvd4 0.58) and high where restoration is a
+measurable wash (flat-vector 045/094). The original "045 = false-negative" framing was wrong —
+skipping 045 is *correct*. Clean operating point at **patch-mean ≈ 0.78** (run < 0.78).
+
+**Decision (Dustin, 2026-06-01):** ship the scoped gate for digital signage as-is; **revisit
+fine-tuning post-ImageBridge** (universal detection / real degraded examples / NAFNet-benefit
+labels — low priority, since the 045-class restoration is already a wash). Known soft edge: the
+milder dvd case (0.84) skips — acceptable for signage. See ADR-0016.
+
+Artifacts (off-repo, weights ship per ADR-0010): head `data/iqa_head2/siglip2_iqa_head.safetensors`
+(val SRCC 0.902), dataset `data/iqa_ds2/` (gitignored), eval frames `data/iqa_eval_frames/`.

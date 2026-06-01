@@ -38,14 +38,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from Python import degradations as deg  # noqa: E402
 from Python.generate_multidegradation_corpus import discover_sources  # noqa: E402
 
-# Severity spread per kind (param ranges chosen to span clean-ish → heavy).
+# Severity spread per kind (clean-ish → heavy). Extended low/heavy after the v1
+# head missed real low-bitrate files (#56 eval): mpeg2 down to 0.15 Mbps, hevc to
+# max CRF — the bitrate-starved regime real signage actually hits.
 PARAM_RANGES = {
-    "noise": (3.0, 50.0),    # sigma
-    "hevc":  (20, 45),       # CRF
-    "av1":   (24, 50),       # CRF
-    "mpeg2": (0.4, 8.0),     # bitrate Mbps (low = heavy blocking, our signage case)
+    "noise": (3.0, 60.0),    # sigma
+    "hevc":  (20, 51),       # CRF (51 = max, very heavy)
+    "av1":   (24, 60),       # CRF
+    "mpeg2": (0.15, 6.0),    # bitrate Mbps (0.15 = severe blocking)
 }
 KINDS = ("noise", "hevc", "av1", "mpeg2")
+
+# Resolution diversity: degrade at varied long-sides so the head sees low-res
+# content too (the v1 head missed 320×240 dvd-mpeg2 — out-of-distribution res).
+# `None` = keep native. Short side stays ≥ 224 so a tile crops cleanly.
+MULTI_RES_LONG_SIDES = (None, 1920, 1280, 960, 720, 540, 426)
 
 
 @dataclass
@@ -78,6 +85,30 @@ class Labeler:
         return d, float(np.clip(1.0 - d, 0.0, 1.0))
 
 
+def _even(v: int) -> int:
+    """Largest even int ≤ v (video codecs require even dimensions)."""
+    return v - (v & 1)
+
+
+def maybe_downscale(img: np.ndarray, size: int, rng: random.Random) -> np.ndarray:
+    """Pick a random target long-side (resolution diversity); keep short side ≥
+    tile size so a tile still crops. `None` → native. Always returns EVEN dims —
+    odd dims make the hevc/av1/mpeg2 degradations throw, which silently dropped
+    every codec variant on downscaled (low-res) sources (the regime we most need)."""
+    h, w = img.shape[:2]
+    target = rng.choice(MULTI_RES_LONG_SIDES)
+    if target is not None and max(h, w) > target:
+        scale = target / max(h, w)
+        nw, nh = int(round(w * scale)), int(round(h * scale))
+        if min(nw, nh) < size:                               # don't go below tile size
+            s2 = size / min(w, h)
+            nw, nh = max(size, int(round(w * s2))), max(size, int(round(h * s2)))
+        img = np.asarray(Image.fromarray(img).resize((nw, nh), Image.BICUBIC))
+        h, w = img.shape[:2]
+    eh, ew = max(size, _even(h)), max(size, _even(w))         # crop to even (≥ tile)
+    return img[:eh, :ew]
+
+
 def random_tile(img: np.ndarray, size: int, rng: random.Random) -> np.ndarray:
     h, w = img.shape[:2]
     if h < size or w < size:                         # upscale small sources to fit
@@ -99,6 +130,11 @@ def main() -> int:
     ap.add_argument("--max-sources", type=int, default=0, help="0 = all")
     ap.add_argument("--metric", choices=["dists", "psnr"], default="dists")
     ap.add_argument("--seed", type=int, default=1234)
+    ap.add_argument("--frame-level", action="store_true",
+                    help="degrade the FULL (downscaled) frame then crop — matches real "
+                         "frame/bitrate degradation; v1 crop-then-degrade missed it")
+    ap.add_argument("--resume", action="store_true",
+                    help="skip source indices already present in the manifest")
     a = ap.parse_args()
 
     out = Path(a.out); (out / "tiles").mkdir(parents=True, exist_ok=True)
@@ -108,35 +144,66 @@ def main() -> int:
     ffmpeg = deg.locate_ffmpeg()
     labeler = Labeler(a.metric)
     rng = random.Random(a.seed)
+    size = a.tile_size
 
-    manifest = (out / "manifest.jsonl").open("w")
-    n = 0
+    # Resume: collect source indices already emitted (filename prefix `{si:06d}_`).
+    mpath = out / "manifest.jsonl"
+    done: set[int] = set()
+    if a.resume and mpath.exists():
+        for line in mpath.read_text().splitlines():
+            try: done.add(int(json.loads(line)["file"].split("/")[1][:6]))
+            except Exception: pass
+        print(f"resume: {len(done)} source indices already done", flush=True)
+    manifest = mpath.open("a" if a.resume else "w")
+    n = sum(1 for _ in (mpath.open() if a.resume and mpath.exists() else iter(())))
+
+    def emit(si, arr, kind, param, dist, q):
+        nonlocal n
+        name = f"tiles/{si:06d}_{kind}_{n:07d}.png"
+        Image.fromarray(arr, "RGB").save(out / name, "PNG", compress_level=1)
+        manifest.write(json.dumps({"file": name, "kind": kind, "param": param,
+                                   "metric": a.metric, "distance": round(dist, 5),
+                                   "quality": round(q, 5)}) + "\n")
+        manifest.flush(); n += 1
+
     for si, src in enumerate(sources):
-        img = np.asarray(Image.open(src).convert("RGB"))
-        tile = random_tile(img, a.tile_size, rng)
+        if si in done:
+            continue
+        img = maybe_downscale(np.asarray(Image.open(src).convert("RGB")), size, rng)
+        h, w = img.shape[:2]
+        if h < size or w < size:                     # tiny source → upscale to fit
+            img = random_tile(img, size, rng); h, w = img.shape[:2]
 
-        def emit(arr, kind, param, dist, q):
-            nonlocal n
-            name = f"tiles/{si:06d}_{kind}_{n:07d}.png"
-            Image.fromarray(arr, "RGB").save(out / name, "PNG", compress_level=1)
-            manifest.write(json.dumps({"file": name, "kind": kind, "param": param,
-                                       "metric": a.metric, "distance": round(dist, 5),
-                                       "quality": round(q, 5)}) + "\n")
-            n += 1
+        def crop(arr, y, x):
+            return arr[y:y + size, x:x + size]
 
-        emit(tile, "clean", 0.0, 0.0, 1.0)           # pristine anchor
+        # Clean anchor (random location).
+        y0, x0 = rng.randint(0, h - size), rng.randint(0, w - size)
+        emit(si, crop(img, y0, x0), "clean", 0.0, 0.0, 1.0)
+
         for _ in range(a.variants):
             kind = rng.choice(KINDS)
             lo, hi = PARAM_RANGES[kind]
             param = rng.uniform(lo, hi)
             try:
-                d = deg.apply_degradation(tile, kind=kind, param=param,
-                                          rng=np.random.default_rng(rng.getrandbits(63)),
-                                          ffmpeg_bin=ffmpeg)
+                # frame-level: degrade the whole frame, then crop (realistic).
+                # crop-level (legacy): crop first, degrade the tile.
+                if a.frame_level:
+                    full = deg.apply_degradation(img, kind=kind, param=param,
+                                                 rng=np.random.default_rng(rng.getrandbits(63)),
+                                                 ffmpeg_bin=ffmpeg)
+                    y, x = rng.randint(0, h - size), rng.randint(0, w - size)
+                    clean_t, deg_t = crop(img, y, x), crop(full, y, x)
+                else:
+                    y, x = rng.randint(0, h - size), rng.randint(0, w - size)
+                    clean_t = crop(img, y, x)
+                    deg_t = deg.apply_degradation(clean_t, kind=kind, param=param,
+                                                  rng=np.random.default_rng(rng.getrandbits(63)),
+                                                  ffmpeg_bin=ffmpeg)
             except Exception:                         # transient ffmpeg failure → skip
                 continue
-            dist, q = labeler.quality(tile, d)
-            emit(d, kind, round(param, 3), dist, q)
+            dist, q = labeler.quality(clean_t, deg_t)
+            emit(si, deg_t, kind, round(param, 3), dist, q)
         if (si + 1) % 50 == 0:
             print(f"  {si + 1}/{len(sources)} sources, {n} tiles", flush=True)
 
