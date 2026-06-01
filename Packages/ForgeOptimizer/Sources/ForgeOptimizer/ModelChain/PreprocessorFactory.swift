@@ -20,37 +20,43 @@ public enum PreprocessorFactory {
 
     /// Create a FrameProcessor chain for the given optimization level.
     /// Returns nil for `.off`. Throws if the NAFNet weights can't be loaded.
+    ///
+    /// **Default-on IQA gate (ADR-0016):** restoration is gated by the learned
+    /// SigLIP2 NR-IQA head — NAFNet runs only on frames it judges degraded enough
+    /// to benefit (the "restoration-pays" signal, validated `SigLIP2GateTests`).
+    /// If the lazy-downloaded backbone (~400 MB, ADR-0005) isn't cached yet, this
+    /// falls back to **unconditional NAFNet** (the pre-gate ship behavior).
     public static func makeChain(for level: OptimizationLevel) throws -> (any FrameProcessor)? {
-        switch level {
-        case .off:
-            return nil
-
-        case .light, .balanced, .aggressive, .maximum:
-            let nafnet = try NAFNetProcessor()
-            return ModelChain([nafnet])
-        }
+        try makeGatedChain(for: level)
     }
 
-    /// Like `makeChain`, but **IQA-gated** (Step 3, #51): NAFNet runs only on
-    /// frames a no-reference scorer judges degraded; clean frames pass through,
-    /// skipping the (tiled-at-4K) inference. Opt-in for now — the default ship
-    /// path stays unconditional until the SigLIP2 NR-IQA head (#23) replaces the
-    /// interim blockiness heuristic and the gate is validated on real content.
+    /// IQA-gated chain (Step 3, #51 / ADR-0016): NAFNet runs only on frames the
+    /// scorer judges degraded; clean frames pass through, skipping the
+    /// (tiled-at-4K) inference and avoiding the slight size bump.
     ///
     /// - Parameters:
-    ///   - scorer: no-reference quality signal (default: `BlockinessQualityScorer`,
-    ///     license-clean; swap in `SigLIP2`-backed scoring when trained).
-    ///   - threshold: run restoration when quality `< threshold` (default 0.6).
+    ///   - scorer: explicit no-reference quality signal. When `nil` (the default),
+    ///     uses the learned `SigLIP2NRIQAScorer`; if its backbone isn't cached,
+    ///     falls back to **unconditional NAFNet** (NOT the unfit blockiness
+    ///     heuristic — see ADR-0016 / Conventions).
+    ///   - threshold: run restoration when quality `< threshold` (default **0.78**,
+    ///     calibrated in the real-frame eval: clean floor ≈0.84, run-cluster ≈0.70–0.74).
     public static func makeGatedChain(
         for level: OptimizationLevel,
-        scorer: any NoReferenceQualityScoring = BlockinessQualityScorer(),
-        threshold: Float = 0.6
+        scorer explicitScorer: (any NoReferenceQualityScoring)? = nil,
+        threshold: Float = 0.78
     ) throws -> (any FrameProcessor)? {
         switch level {
         case .off:
             return nil
         case .light, .balanced, .aggressive, .maximum:
             let nafnet = try NAFNetProcessor()
+            // Default gate = learned SigLIP2 head; fall back to unconditional
+            // NAFNet if the backbone isn't cached (graceful — never the unfit
+            // blockiness baseline, which mis-gated real signage).
+            guard let scorer = explicitScorer ?? (try? SigLIP2NRIQAScorer()) else {
+                return ModelChain([nafnet])
+            }
             let gated = GatedRestorationProcessor(restoration: nafnet, scorer: scorer, threshold: threshold)
             return ModelChain([gated])
         }

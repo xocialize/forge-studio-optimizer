@@ -61,6 +61,27 @@ struct SigLIP2GateTests {
         // so we don't require them low; just record for visibility above.
     }
 
+    @Test("default-on factory: convenience init loads the BUNDLED head + cached backbone")
+    func bundledScorerLoads() throws {
+        let backbone = SigLIP2BackboneLoader.defaultCacheRoot.appending(path: "model.safetensors")
+        guard FileManager.default.fileExists(atPath: backbone.path) else {
+            print("[gate] backbone not cached → skipping convenience-init test"); return
+        }
+        // Convenience init resolves the head from Bundle.module (shipped Resources)
+        // — this is the path makeGatedChain/makeChain use by default (ADR-0016).
+        let scorer = try SigLIP2NRIQAScorer()
+
+        let root = URL(filePath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let frame = root.appending(path: "Packages/ForgeTraining/data/iqa_eval_frames/clean_signage.png")
+        guard let pb = loadPNG(frame) else { print("[gate] eval frame absent → skip"); return }
+        let q = scorer.quality(pb)
+        print("[gate] convenience-init clean_signage \(String(format: "%.3f", q))")
+        #expect(q > 0.78, "clean signage should score above the 0.78 gate threshold")
+    }
+
     /// PNG → BGRA `CVPixelBuffer`.
     private func loadPNG(_ url: URL) -> CVPixelBuffer? {
         guard let ci = CIImage(contentsOf: url) else { return nil }

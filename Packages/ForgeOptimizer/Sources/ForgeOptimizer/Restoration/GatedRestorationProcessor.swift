@@ -19,14 +19,15 @@ public final class GatedRestorationProcessor: FrameProcessor, @unchecked Sendabl
 
     private let restoration: any FrameProcessor
     private let scorer: any NoReferenceQualityScoring
-    /// Run restoration when `quality < threshold`. Conservative by default
-    /// (0.6): when in doubt, restore — a false "degraded" only costs compute and
-    /// is ~neutral on quality, while a false "clean" *misses* a real restoration.
+    /// Run restoration when `quality < threshold`. Default **0.78**, calibrated
+    /// for the SigLIP2 NR-IQA head in the real-frame eval (ADR-0016): the clean
+    /// floor sits ≈0.84 and the degradation-where-NAFNet-helps cluster ≈0.70–0.74,
+    /// so 0.78 separates them. (The interim blockiness baseline used 0.6.)
     private let threshold: Float
 
     public init(restoration: any FrameProcessor,
                 scorer: any NoReferenceQualityScoring,
-                threshold: Float = 0.6) {
+                threshold: Float = 0.78) {
         self.restoration = restoration
         self.scorer = scorer
         self.threshold = threshold

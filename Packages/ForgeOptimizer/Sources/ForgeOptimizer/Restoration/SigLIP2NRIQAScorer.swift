@@ -49,6 +49,24 @@ public final class SigLIP2NRIQAScorer: NoReferenceQualityScoring, @unchecked Sen
         self.maxPatches = maxPatches
     }
 
+    /// Resolve from the standard ship locations: the cached 8-bit backbone
+    /// (`SigLIP2BackboneLoader` — `ensureWeights()` must have run, e.g. at app
+    /// startup; it's a ~400 MB lazy download, ADR-0005) + the bundled head
+    /// (`Bundle.module`). Throws if either is absent — `makeGatedChain` catches
+    /// that and falls back to unconditional NAFNet.
+    public convenience init(maxPatches: Int = 8) throws {
+        let backbone = SigLIP2BackboneLoader.defaultCacheRoot.appending(path: "model.safetensors")
+        guard FileManager.default.fileExists(atPath: backbone.path) else {
+            throw ForgeOptimizerError.modelLoadFailed(
+                "SigLIP2 backbone not cached — run SigLIP2BackboneLoader.ensureWeights() at startup")
+        }
+        guard let head = Bundle.module.url(forResource: "siglip2_iqa_head", withExtension: "safetensors") else {
+            throw ForgeOptimizerError.modelLoadFailed(
+                "siglip2_iqa_head.safetensors not in Bundle.module (vendor it into ForgeOptimizer/Resources/)")
+        }
+        try self.init(backboneWeightsURL: backbone, headWeightsURL: head, maxPatches: maxPatches)
+    }
+
     public func quality(_ pixelBuffer: CVPixelBuffer) -> Float {
         lock.lock(); defer { lock.unlock() }
         // Fail OPEN (return pristine → skip restoration) on any preprocessing

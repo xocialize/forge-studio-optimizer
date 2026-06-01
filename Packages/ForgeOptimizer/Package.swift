@@ -41,6 +41,7 @@ let package = Package(
                 .copy("Resources/espcn_x4.mlpackage"),
                 .copy("Resources/quality_regressor.mlpackage"),
                 .copy("Resources/nafnet.safetensors"),
+                .copy("Resources/siglip2_iqa_head.safetensors"),
                 .copy("Resources/MODELS.md"),
             ],
             linkerSettings: [

@@ -13,6 +13,15 @@ These `.mlpackage` files are vendored from [xocialize-code/com.xocialize.coreml]
 
 **Total**: ~6.0 MB
 
+## Safetensors weights (MLX restoration + gate)
+
+| Model | Architecture | Task | Size | Training data | Metric | SPDX |
+|---|---|---|---|---|---|---|
+| `nafnet.safetensors` | NAFNet (w24) | Joint denoise + artifact removal | 4.9 MB (fp16) | IBM signage frames + our codec degradations (ADR-0010) | val PSNR 41.5 dB | `Proprietary` (weights ship; frames don't) |
+| `siglip2_iqa_head.safetensors` | 2-layer MLP on frozen SigLIP2 | No-reference IQA gate signal (Step 3) | 770 KB | **our** signage frames + our codec degradations, DISTS pseudo-MOS labels (ADR-0010/0016) | val SRCC 0.902 / PLCC 0.956 | `Apache-2.0` head over `Apache-2.0` backbone |
+
+`siglip2_iqa_head` is the **realized Phase E replacement** for `quality_regressor` (the KADID-trained, non-commercial scorer flagged below ²). License-clean by construction — we degrade our own frames with our own codecs and label with a full-reference metric (DISTS), so no non-commercial IQA dataset is touched. It runs over the lazy-downloaded 8-bit SigLIP2 backbone (`mlx-community/siglip2-base-patch16-224-8bit`, Apache-2.0; dequantized on load, parity cosine 0.9999 vs FP — #57) and gates NAFNet default-on at threshold 0.78 (ADR-0016). Trainer/eval: `Packages/ForgeTraining/Scripts/{train,eval}_iqa_head.py`; data gen `Python/generate_iqa_dataset.py` (source frames stay off-repo / gitignored — only the head ships).
+
 ¹ Trained on DIV2K (CC-BY-4.0). Trained weights are MVS Collective IP; the SPDX `Proprietary` tag means the `LicensePolicy` actor needs an explicit allow-list to load them in commercial builds. Source training pipeline: [xocialize-code/video-combobulator/Training](https://github.com/xocialize-code/video-combobulator/tree/HEAD/Training).
 
 ² **License flag**: `quality_regressor` was trained on KADID-10k, which is licensed for *non-commercial research use only* (per the dataset's release terms). Trained-weight derivative status is legally murky. **This model is the explicit Phase E.5 replacement target** (SigLIP2 NR-IQA head, Apache-2.0). Until Phase E lands, treat the quality regressor as eval-only and gate it out of any commercial release with `LicensePolicy`. Captured as a Phase A.3 acceptance criterion (`ModelRegistry` refuses load on non-commercial license).
