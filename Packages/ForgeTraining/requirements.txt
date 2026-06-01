@@ -23,3 +23,6 @@ pytest==8.3.3
 
 # NR-IQA pseudo-MOS labeling (#56) — perceptual full-reference metrics (DISTS/LPIPS)
 piq==0.8.0
+
+# SigLIP2 NR-IQA head training (#56) — frozen backbone embedding extraction
+transformers==4.49.0
