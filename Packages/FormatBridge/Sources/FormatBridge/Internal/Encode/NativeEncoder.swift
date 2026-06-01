@@ -15,6 +15,47 @@ final class NativeEncoderImpl: VideoEncoding, @unchecked Sendable {
     private(set) var isHardwareAccelerated: Bool = false
     private var pendingMetadata: MediaInfo?
 
+    // Deferred-append queues for interleave backpressure (#32).
+    // When one track races ahead of the other, AVAssetWriter sets that input's
+    // `isReadyForMoreMediaData = false` until the other track catches up. The old
+    // code block-spun the append until ready — but the only thing that clears the
+    // backpressure is pushing the OTHER track, which the blocked caller can't reach
+    // → deadlock (the hybrid WebM/MKV+audio path stalled ~2/3 of the time). Instead
+    // we defer the buffer here and return, so the caller pushes the other track and
+    // the writer drains. Retaining the decoder's pool buffer is safe: a
+    // CVPixelBufferPool will not recycle a still-retained buffer.
+    private var pendingVideo: [(CVPixelBuffer, CMTime)] = []
+    private var pendingAudio: [CMSampleBuffer] = []
+
+    /// Max wall-clock to drain remaining queued buffers at `finish()` before
+    /// failing (time-based, robust to scheduler jitter). Not used on the hot path —
+    /// appends never block; this only bounds the final flush.
+    private static let readinessTimeout: TimeInterval = 5.0
+
+    /// Throw the writer's real error if it has entered `.failed`.
+    private func failIfWriterFailed() throws {
+        if let writer = assetWriter, writer.status == .failed {
+            throw FormatBridgeError.encoderWriteFailed(
+                writer.error?.localizedDescription ?? "AVAssetWriter failed")
+        }
+    }
+
+    /// Flush as many queued buffers as each input will currently accept (FIFO,
+    /// preserving order). Never blocks.
+    private func drainPending() {
+        while let (pb, t) = pendingVideo.first,
+              let input = videoInput, input.isReadyForMoreMediaData,
+              let adaptor = pixelBufferAdaptor {
+            guard adaptor.append(pb, withPresentationTime: t) else { break }
+            pendingVideo.removeFirst()
+        }
+        while let sb = pendingAudio.first,
+              let input = audioInput, input.isReadyForMoreMediaData {
+            guard input.append(sb) else { break }
+            pendingAudio.removeFirst()
+        }
+    }
+
     /// Set source metadata to embed in the output file.
     /// Call before `configure()`.
     func setSourceMetadata(_ mediaInfo: MediaInfo) {
@@ -124,22 +165,20 @@ final class NativeEncoderImpl: VideoEncoding, @unchecked Sendable {
         guard let adaptor = pixelBufferAdaptor, let input = videoInput else {
             throw FormatBridgeError.encoderWriteFailed("Encoder not configured")
         }
+        try failIfWriterFailed()
+        drainPending()
 
-        // Wait for input to be ready (spin briefly)
-        var attempts = 0
-        while !input.isReadyForMoreMediaData && attempts < 100 {
-            Thread.sleep(forTimeInterval: 0.001)
-            attempts += 1
-        }
-
-        guard input.isReadyForMoreMediaData else {
-            throw FormatBridgeError.encoderWriteFailed("Video input not ready after waiting")
-        }
-
-        guard adaptor.append(pixelBuffer, withPresentationTime: time) else {
-            throw FormatBridgeError.encoderWriteFailed(
-                assetWriter?.error?.localizedDescription ?? "Failed to append video frame"
-            )
+        // Fast path: no backlog and the input will accept it → append now.
+        // Otherwise defer (don't block) so the caller can push the other track and
+        // relieve the interleave backpressure; ordering is preserved via the queue.
+        if pendingVideo.isEmpty && input.isReadyForMoreMediaData {
+            guard adaptor.append(pixelBuffer, withPresentationTime: time) else {
+                throw FormatBridgeError.encoderWriteFailed(
+                    assetWriter?.error?.localizedDescription ?? "Failed to append video frame"
+                )
+            }
+        } else {
+            pendingVideo.append((pixelBuffer, time))
         }
     }
 
@@ -156,20 +195,17 @@ final class NativeEncoderImpl: VideoEncoding, @unchecked Sendable {
             )
         }
 
-        var attempts = 0
-        while !input.isReadyForMoreMediaData && attempts < 100 {
-            Thread.sleep(forTimeInterval: 0.001)
-            attempts += 1
-        }
+        try failIfWriterFailed()
+        drainPending()
 
-        guard input.isReadyForMoreMediaData else {
-            throw FormatBridgeError.encoderWriteFailed("Audio input not ready after waiting")
-        }
-
-        guard input.append(sampleBuffer) else {
-            throw FormatBridgeError.encoderWriteFailed(
-                assetWriter?.error?.localizedDescription ?? "Failed to append audio samples"
-            )
+        if pendingAudio.isEmpty && input.isReadyForMoreMediaData {
+            guard input.append(sampleBuffer) else {
+                throw FormatBridgeError.encoderWriteFailed(
+                    assetWriter?.error?.localizedDescription ?? "Failed to append audio samples"
+                )
+            }
+        } else {
+            pendingAudio.append(sampleBuffer)
         }
     }
 
@@ -178,8 +214,35 @@ final class NativeEncoderImpl: VideoEncoding, @unchecked Sendable {
             throw FormatBridgeError.encoderWriteFailed("Encoder not configured")
         }
 
-        videoInput?.markAsFinished()
-        audioInput?.markAsFinished()
+        // Flush any deferred buffers, then mark each input finished. Crucial ordering:
+        // mark a track finished AS SOON AS its queue empties. A track that reached EOS
+        // first (typically audio) otherwise holds the other input `not-ready` — the
+        // writer keeps waiting to interleave with a track it doesn't yet know is done.
+        // markAsFinished() releases that backpressure so the trailing track drains.
+        // (markAsFinished is one-shot, so guard each with a flag.) Safe to bound-wait
+        // here: the decode loop is done, so the writer drains on its own — no deadlock.
+        var videoDone = (videoInput == nil)
+        var audioDone = (audioInput == nil)
+        func markDrainedTracks() {
+            if !audioDone && pendingAudio.isEmpty { audioInput?.markAsFinished(); audioDone = true }
+            if !videoDone && pendingVideo.isEmpty { videoInput?.markAsFinished(); videoDone = true }
+        }
+        let deadline = Date().addingTimeInterval(Self.readinessTimeout)
+        markDrainedTracks()
+        while !pendingVideo.isEmpty || !pendingAudio.isEmpty {
+            try failIfWriterFailed()
+            drainPending()
+            markDrainedTracks()
+            if pendingVideo.isEmpty && pendingAudio.isEmpty { break }
+            if Date() >= deadline {
+                throw FormatBridgeError.encoderWriteFailed(
+                    "Encoder finish: \(pendingVideo.count) video + \(pendingAudio.count) audio "
+                    + "buffers undrained after \(Self.readinessTimeout)s")
+            }
+            Thread.sleep(forTimeInterval: 0.001)
+        }
+        if !videoDone { videoInput?.markAsFinished() }
+        if !audioDone { audioInput?.markAsFinished() }
 
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             writer.finishWriting {
