@@ -81,6 +81,10 @@ public enum AudioCodec: String, Codable, Sendable, CaseIterable {
 public enum OutputVideoCodec: String, Codable, Sendable, CaseIterable {
     case h264
     case hevc
+    /// AV1 — opt-in export tier (Step 4, #52). No VideoToolbox/in-process encoder
+    /// yet (Apple Silicon has AV1 decode only); encoded via SVT-AV1 through ffmpeg
+    /// (`forge-quality-target --codec av1`). In-process FFmpegXC+libsvtav1 is Phase B.
+    case av1
 }
 
 public enum OutputAudioCodec: String, Codable, Sendable, CaseIterable {

@@ -75,6 +75,7 @@ $RUNNER --corpus ../../Tests/Corpus/manifest.json \
 | 0014 | **Revise §4 compression gate** — VMAF-targeted vs-flat savings on high-bitrate sources; **implemented (#54)**: threshold calibrated **≥15%** (measured 16.6%, PASS), fixed-CRF gates retired from GateEvaluator (v1.1, 3 gates), gated by `Tools/quality_target_gate.py` | Accepted |
 | 0015 | **Per-shot deferred on VideoToolbox** — capped per-shot ties per-title (~0%); VT constant-quality already adapts per-frame. Don't ship; revisit only with fixed-CRF x264 (#53) | Accepted |
 | 0016 | **Step 3 IQA gate = scoped "restoration-pays" (#56)** — v2 SigLIP2 head (data-mix iteration: frame-level + multi-res + DISTS labels) scores low where NAFNet pays (encoded/photographic), high on flat-vector (045/094, where orig≈restored = a wash). Ship default-on, threshold ~0.78; revisit fine-tuning post-ImageBridge | Accepted |
+| 0017 | **AV1 tier via SVT-AV1 subprocess first (#52)** — no HW AV1 encode on Apple Silicon (VT −12908) + FFmpegXC has no AV1 encoder, so Phase A = `forge-quality-target --codec av1` (VMAF-targeted SVT-AV1 CRF search + `--film-grain`, via ffmpeg). AV1 ~44–53% < HEVC on signage. In-process FFmpegXC+SVT-AV1 = Phase B (end-polish) | Accepted |
 
 Benchmark report: `Docs/Benchmarks/benchmark-c4-ab-v2-e06ff85.json`. Real-signage eval spec: `Docs/Benchmarks/real-signage-eval-set.md`.
 

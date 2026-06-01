@@ -63,6 +63,11 @@ struct QualityTargetCLI {
         // Step-3 IQA gate signal); print mean/min/max quality. For threshold
         // calibration on real content.
         var score: Bool = false
+        // AV1 export tier (Step 4, #52): when `codec == .av1`, VMAF-target search
+        // runs over SVT-AV1 CRF via ffmpeg subprocess (no in-process AV1 encoder
+        // on Apple Silicon yet). Film-grain synthesis is opt-in.
+        var av1Preset: Int = 6           // SVT-AV1 preset (0 slowest/best … 13 fastest)
+        var filmGrain: Int? = nil        // SVT-AV1 film-grain synthesis level 1…50 (final encode only)
     }
 
     enum CLIError: Error, CustomStringConvertible {
@@ -81,11 +86,15 @@ struct QualityTargetCLI {
     usage: forge-quality-target --input <clip> [options]
       --input,  -i  <path>   source clip (required)
       --target, -t  <vmaf>   target VMAF floor (default 95)
-      --codec       hevc|h264 (default hevc)
+      --codec       hevc|h264|av1 (default hevc; av1 = SVT-AV1 via ffmpeg, Step 4)
       --max-frames  <n>      sample frame cap (default 120)
       --max-probes  <n>      sample-encode probe cap (default 8)
       --slack       <pts>    accept VMAF >= target - slack (default 0.5)
       --out         <path>   also keep the final targeted encode here
+
+    AV1 export tier (--codec av1, Step 4 — opt-in, ~45% smaller than HEVC on signage):
+      --av1-preset  <0..13>  SVT-AV1 preset (default 6; lower = slower/smaller)
+      --film-grain  <1..50>  AV1 film-grain synthesis on the final encode (default off)
 
     restore mode (degraded "bad file" input, no pristine reference):
       --restore              decode → NAFNet restore → re-encode (needs --out)
@@ -104,7 +113,14 @@ struct QualityTargetCLI {
             switch a {
             case "--input", "-i": input = it.next().map { URL(fileURLWithPath: $0) }
             case "--target", "-t": if let v = it.next().flatMap(Double.init) { o.targetVMAF = v }
-            case "--codec": o.codec = (it.next() == "h264") ? .h264 : .hevc
+            case "--codec":
+                switch it.next() {
+                case "h264": o.codec = .h264
+                case "av1": o.codec = .av1
+                default: o.codec = .hevc
+                }
+            case "--av1-preset": if let v = it.next().flatMap(Int.init) { o.av1Preset = v }
+            case "--film-grain": if let v = it.next().flatMap(Int.init) { o.filmGrain = v }
             case "--max-frames": if let v = it.next().flatMap(Int.init) { o.maxFrames = v }
             case "--max-probes": if let v = it.next().flatMap(Int.init) { o.maxProbes = v }
             case "--slack": if let v = it.next().flatMap(Double.init) { o.slack = v }
@@ -131,6 +147,7 @@ struct QualityTargetCLI {
         if o.restore { try await runRestore(o); return }
         if o.perShot { try await runPerShot(o); return }
         if o.score { try await runScore(o); return }
+        if o.codec == .av1 { try await runAV1(o); return }
         let ffmpeg = FFmpegVMAFScorer.resolveFFmpeg()
 
         // 1. Probe the source.
@@ -441,6 +458,125 @@ struct QualityTargetCLI {
         guard p.terminationStatus == 0, FileManager.default.fileExists(atPath: out.path) else {
             let log = String(data: err.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
             throw CLIError.ffmpeg("concat failed: \(log.suffix(400))")
+        }
+    }
+
+    // MARK: - AV1 export tier (Step 4, #52 — SVT-AV1 via ffmpeg subprocess)
+
+    /// VMAF-targeted AV1 export. Apple Silicon has no AV1 *encoder* (decode only)
+    /// and FFmpegXC is built without libsvtav1, so this Phase-A path shells to the
+    /// configured ffmpeg's `libsvtav1`: binary-search the SVT-AV1 CRF on a sample
+    /// for the smallest file meeting the VMAF floor, then full-encode at that CRF
+    /// (with optional film-grain synthesis). Phase B swaps the subprocess for an
+    /// in-process FFmpegXC+SVT-AV1 encoder behind the same `--codec av1` flag.
+    static func runAV1(_ o: Options) async throws {
+        let ffmpeg = FFmpegVMAFScorer.resolveFFmpeg()
+        let info = try await FormatBridgeFactory.makeProbe().probe(url: o.input)
+        guard let vs = info.videoStreams.first else { throw CLIError.noVideoStream }
+        let fps = vs.frameRate > 0 ? vs.frameRate : 30.0
+        let sampleCount = o.maxFrames
+        let sampleSeconds = Double(sampleCount) / fps
+
+        log("source   : \(o.input.lastPathComponent)  \(vs.width)x\(vs.height) "
+            + "@ \(fmt(fps)) fps  \(vs.codec)  "
+            + (vs.bitrate.map { "\(fmt(Double($0) / 1e6)) Mbps" } ?? "bitrate ?"))
+        log("target   : VMAF ≥ \(fmt(o.targetVMAF)) (slack \(fmt(o.slack)))  codec av1 "
+            + "(SVT-AV1 preset \(o.av1Preset)\(o.filmGrain.map { ", film-grain \($0)" } ?? ""))")
+
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("fqt-av1-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        // Lossless reference of the first `sampleCount` source frames (the #55 recipe:
+        // trim by index, no setpts; framelock at compare time).
+        let reference = tmp.appendingPathComponent("ref.mkv")
+        try buildReference(source: o.input, startFrame: 0, count: sampleCount,
+                           to: reference, ffmpeg: ffmpeg)
+        log("sample   : \(sampleCount) frames (\(fmt(sampleSeconds)) s)")
+        let scorer = FFmpegVMAFScorer(ffmpegPath: ffmpeg)
+
+        // Binary-search CRF: higher CRF = smaller/lower quality. Find the HIGHEST
+        // CRF whose sample VMAF still clears the floor (target − slack).
+        // SVT-AV1 CRF 0…63 (higher = smaller). Span most of it: easy signage
+        // (flat/graphics) clears VMAF floors at very high CRF, so a low ceiling
+        // leaves real savings on the table (sevilla@93 hit a 55-cap at VMAF 99.4).
+        log("searching: SVT-AV1 CRF binary search over the sample …")
+        var lo = 18, hi = 63, probes = 0
+        var best: (crf: Int, vmaf: Double)?
+        while lo <= hi && probes < o.maxProbes {
+            let crf = (lo + hi) / 2
+            let probe = tmp.appendingPathComponent("probe-\(crf).mp4")
+            try encodeAV1(source: o.input, frames: sampleCount, crf: crf, preset: o.av1Preset,
+                          filmGrain: nil, to: probe, ffmpeg: ffmpeg)
+            let vmaf = try await scorer.score(reference: reference, distorted: probe)
+            probes += 1
+            log("  crf \(crf): VMAF \(fmt(vmaf))  (\(fmt(Double(fileSize(probe)) / 1e6)) MB sample)")
+            if vmaf >= o.targetVMAF - o.slack { best = (crf, vmaf); lo = crf + 1 }
+            else { hi = crf - 1 }
+        }
+        let chosen = best?.crf ?? lo            // none met → lowest-CRF (highest quality) fallback
+        let metTarget = best != nil
+
+        // Final full-clip encode at the chosen CRF (+ film-grain if requested).
+        let output = o.keepOutput ?? tmp.appendingPathComponent("av1.mp4")
+        log(metTarget ? "encoding : full clip @ crf \(chosen) …"
+                      : "encoding : TARGET UNREACHABLE — full clip @ crf \(chosen) (best effort) …")
+        let clock = Date()
+        try encodeAV1(source: o.input, frames: nil, crf: chosen, preset: o.av1Preset,
+                      filmGrain: o.filmGrain, to: output, ffmpeg: ffmpeg)
+        let elapsed = Date().timeIntervalSince(clock)
+
+        // Report (+ measure final VMAF on the sample for a sanity figure).
+        let outBytes = fileSize(output)
+        let probedDur = CMTimeGetSeconds(info.duration)
+        let dur = probedDur.isFinite && probedDur > 0 ? probedDur : sampleSeconds
+        let bitrate = Double(outBytes) * 8.0 / max(dur, 1e-6)
+        log("")
+        log("── AV1 result ─────────────────────────────────────────")
+        let floor = o.targetVMAF - o.slack
+        log("chosen CRF     : \(chosen)  "
+            + (metTarget ? "(sample VMAF \(fmt(best!.vmaf)) ≥ floor \(fmt(floor)) = target−slack)"
+                         : "(TARGET UNREACHABLE — ceiling)"))
+        log("encode time    : \(fmt(elapsed)) s over \(probes) probes  (SVT-AV1 preset \(o.av1Preset))")
+        log("output size    : \(fmt(Double(outBytes) / 1e6)) MB  →  \(fmt(bitrate / 1e6)) Mbps")
+        if let src = vs.bitrate, src > 0 {
+            let savings = (1.0 - bitrate / Double(src)) * 100.0
+            log("source bitrate : \(fmt(Double(src) / 1e6)) Mbps")
+            log(String(format: "SAVINGS vs src : %.1f%% smaller at VMAF ≥ %@ (AV1)", savings, fmt(o.targetVMAF)))
+        }
+        if o.json {
+            let src = vs.bitrate ?? 0
+            print("JSON {\"clip\":\"\(o.input.lastPathComponent)\",\"codec\":\"av1\","
+                + "\"crf\":\(chosen),\"metTarget\":\(metTarget),\"sampleVMAF\":\(fmt(best?.vmaf ?? 0, 3)),"
+                + "\"filmGrain\":\(o.filmGrain ?? 0),\"outBytes\":\(outBytes),\"sourceBytes\":\(src)}")
+        }
+        if let keep = o.keepOutput { log("kept output    : \(keep.path)") }
+    }
+
+    /// Encode (a prefix of) `source` to AV1 via ffmpeg + libsvtav1. `frames == nil`
+    /// encodes the whole clip; otherwise the first `frames` frames (probe). Tagged
+    /// BT.709. Film-grain synthesis (with source denoise) when `filmGrain` is set.
+    static func encodeAV1(source: URL, frames: Int?, crf: Int, preset: Int,
+                          filmGrain: Int?, to out: URL, ffmpeg: String) throws {
+        try? FileManager.default.removeItem(at: out)
+        var args = ["-hide_banner", "-loglevel", "error", "-y", "-i", source.path, "-an"]
+        if let n = frames { args += ["-frames:v", "\(n)"] }
+        args += ["-c:v", "libsvtav1", "-preset", "\(preset)", "-crf", "\(crf)", "-pix_fmt", "yuv420p"]
+        if let g = filmGrain, g > 0 {
+            // film-grain=N synthesis; denoise the source first so the grain compresses
+            // out and is re-synthesised at decode (the canonical AV1 grain workflow).
+            args += ["-svtav1-params", "film-grain=\(g):film-grain-denoise=1"]
+        }
+        args += ["-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", out.path]
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: ffmpeg)
+        p.arguments = args
+        let err = Pipe(); p.standardError = err; p.standardOutput = FileHandle.nullDevice
+        try p.run(); p.waitUntilExit()
+        guard p.terminationStatus == 0, FileManager.default.fileExists(atPath: out.path) else {
+            let l = String(data: err.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            throw CLIError.ffmpeg("AV1 encode failed (crf \(crf)): \(l.suffix(400))")
         }
     }
 
