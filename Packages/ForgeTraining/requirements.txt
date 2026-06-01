@@ -20,3 +20,6 @@ pytest==8.3.3
 # to run numerical-parity tests against the MLX reference. Pinning to the CPU
 # wheel keeps the install size manageable (~200 MB vs ~2 GB for CUDA builds).
 # Install via the dedicated requirements-parity.txt; see setup.sh / README.md.
+
+# NR-IQA pseudo-MOS labeling (#56) — perceptual full-reference metrics (DISTS/LPIPS)
+piq==0.8.0
