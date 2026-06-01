@@ -47,3 +47,39 @@ Synthetic unit tests can pass while the metric is wrong for real content. A hand
 artifact proxy (blockiness) ≠ perceptual degradation; ringing-dominated signage needs a
 learned NR-IQA model. **Validate any quality signal on real clean AND real degraded clips
 before trusting it.**
+
+---
+
+## Update (2026-06-01): trained the head — strong fit, but doesn't gate real bad files
+
+Generate-our-own pipeline ran on the signage masters (partial: 700/1130 frames →
+6,453 labeled tiles, killed mid-gen but plenty). Head trained: **val SRCC 0.823 /
+PLCC 0.966** (n_val=967) vs DISTS pseudo-MOS — a strong *fit to the synthetic labels*.
+
+**But the real-frame eval (`Scripts/eval_iqa_head.py`) is the actual gate test, and it
+fails on the real bad files:**
+
+| frame | patch-mean quality |
+|---|---|
+| clean masters (sports/talkinghead/signage) | 0.92–0.95 |
+| synthetic crush (sports → HEVC crf45) | **0.68** ✓ detected |
+| **BAD Snowflake 045 (4K@1.9 vector)** | **0.97** ✗ scored clean |
+| **BAD dvd-mpeg2 (0.5 Mbps)** | 0.92 ✗ scored clean |
+
+The head detects the degradation distribution it was TRAINED on (synthetic crush of
+photographic content) but not real-source degradation that differs: 045 (flat vector +
+sparse ringing — most 224 patches genuinely clean; NAFNet's benefit was modest anyway)
+and dvd (320×240, out-of-distribution resolution).
+
+**Lesson (third real-content catch):** strong SRCC/PLCC vs a synthetic FR label ≠ a
+working gate. Validate the head on real clean AND real degraded frames, not just held-out
+synthetic tiles.
+
+**Path forward (iteration, not dead end) — Dustin's call:**
+1. **Match the training distribution to reality** — degrade at the real bitrates/codecs/
+   content-types the bad files have (4K vector @ ~1.9 Mbps, low-res MPEG-2 sources), and/or
+   add real degraded examples. Re-train, re-eval on 045/dvd.
+2. **Scope the gate** — accept that it detects photographic degradation (where NAFNet helps
+   most) and default-skip flat/vector content (where NAFNet barely helps); validate that
+   the gate decision correlates with actual NAFNet benefit.
+3. The data generator + trainer + eval tooling all stand; only the training *data mix* changes.
