@@ -149,11 +149,21 @@ track B.1→B.5 ships (trained, wired). Encoder roadmap (research Step 0→6):
   would skip; our signage degrades as ringing, not grid-blocking). Default stays
   unconditional NAFNet. (`step3-iqa-gate-findings.md`)
 
-**▶ CRITICAL-PATH NEXT — #56: train the SigLIP2 NR-IQA head** (head is ported #27 but
-untrained; KADID scorer is non-commercial). **Needs a commercial-usable IQA dataset →
-internet to acquire** (the reason we paused). Unblocks Step 3 gate (#51) AND ImageBridge's
-no-reference still metric — one model, two consumers. Then default-on the gated chain +
-re-validate on real signage incl. 045.
+**▶ #56 (NR-IQA head) — pipeline + head built; gate-detection gap is the open item.**
+Licensing settled: academic IQA datasets are NC/research → **generate our own** pseudo-MOS
+(`generate_iqa_dataset.py`: our codecs + DISTS labels, license-clean) → train the tiny head
+on the frozen 8-bit SigLIP2 backbone (`train_iqa_head.py`) → `eval_iqa_head.py`. Trained on
+6,453 signage-master tiles: **val SRCC 0.82 / PLCC 0.97** (strong fit to synthetic labels).
+**BUT real-frame eval shows it doesn't gate real bad files** — Snowflake 045 (4K@1.9 vector)
+scores 0.97 "clean", dvd-mpeg2 0.92; it detects the *synthetic photographic* degradation it
+trained on (crf45→0.68) but not the real distribution. (`step3-iqa-gate-findings.md`.)
+Artifacts preserved OFF-REPO: `Packages/ForgeTraining/data/iqa_head/siglip2_iqa_head.safetensors`
+(789 KB) + `data/iqa_ds/` (6,453 tiles). **RESUME = pick the path (Dustin, deferred):**
+(1) data-mix iteration — re-gen with real-matched degradations (4K-vector@~1.9 Mbps, low-res
+MPEG-2) + real degraded examples, retrain, re-eval on 045/dvd; (2) defer the gate + ship
+always-NAFNet (Step-2-style ADR), keep the head for ImageBridge's still metric; (3) scope to
+photographic. The head is already a fine *general* quality predictor → seeds ImageBridge.
+Gate stays opt-in; default = unconditional NAFNet.
 
 Other remaining: **#52** Step 4 (SVT-AV1 opt-in tier — needs SVT-AV1 vendored, internet),
 #53 (conditional x264 / convex-hull), #15 (PocketDVDNet).
