@@ -2,36 +2,37 @@ import FormatBridge   // OptimizationLevel
 import ForgeOptimizer
 import ImageBridge
 
-/// Wires ForgeOptimizer's SigLIP2 stack into ImageBridge's `StillOptimizer` for the
-/// signage default (PRD §6 / Phase 4): one shared NR-IQA head drives the restoration gate
-/// (does-restoration-pay, ADR-0016) and — optionally — the lossy encode floor.
+/// Wires the signage default `StillOptimizer` (PRD §6 / Phase 4) with the RIGHT metric in
+/// each role — the Phase-4 + #71 conclusion:
 ///
-/// ⚠️ FINDING (Phase-4 validation, real signage frame): SigLIP2 NR-IQA is nearly FLAT
-/// across the lossy quality knob — on `clean_signage.png` it reads 0.910→0.901 as HEIC q
-/// goes 1.0→0.31 (520 KB→44 KB). It's an *absolute-aesthetic / restoration-pays* signal,
-/// not a *compression-fidelity* gradient, so as a lossy floor it bottoms out at minimum
-/// quality (maximal compression). That's fine — even desirable — for flat graphic/text
-/// signage (HEIC compresses it cleanly), but it can't protect fine detail. For
-/// fidelity-critical content inject a FULL-REFERENCE metric (SSIMULACRA2, ADR-0021) as the
-/// floor instead; SigLIP2's validated job here is the restoration gate. The plumbing
-/// (`StillOptimizer`) is metric-agnostic, so swapping the floor is a one-liner.
+/// - **Restoration gate = SigLIP2 NR-IQA** (does-restoration-pay, ADR-0016). Its validated
+///   job: an absolute-aesthetic signal that decides whether NAFNet helps.
+/// - **Lossy encode floor = SSIMULACRA2** (full-reference, #71). SigLIP2 is nearly FLAT
+///   across the compression knob (0.910→0.901 from HEIC q1.0→0.31 on a real frame), so it
+///   can't protect fine detail; SSIMULACRA2 is a true fidelity-vs-reference gradient
+///   (monotonic), used at encode time exactly like libvmaf on the video side.
+///
+/// So the head loads once (gate), and the lossy floor shells out to the `ssimulacra2`
+/// reference binary (`brew install jpeg-xl`). For PNG/lossless targets the floor is unused.
 public enum SignageStillOptimizer {
 
-    /// NR-IQA lossy floor for signage (head units, [0,1]). Because the metric is flat (see
-    /// the type note), this behaves as "compress maximally while NR-IQA still passes" —
-    /// appropriate for flat graphic signage, NOT a fine fidelity guard. Clean signage ≈0.91.
-    public static let recommendedFloor: Double = 0.85
+    /// Recommended SSIMULACRA2 lossy floor for signage (−∞…100; 90 ≈ visually lossless at 1:1).
+    public static let recommendedFloor: Double = BinarySSIMULACRA2Scorer.recommendedFloor
 
-    /// Build the optimizer. The head is loaded once (throws if the SigLIP2 backbone isn't
-    /// cached — run `SigLIP2BackboneLoader.ensureWeights()` at startup).
+    /// Build the optimizer. Loads the SigLIP2 head once for the restoration gate (throws if
+    /// the backbone isn't cached — run `SigLIP2BackboneLoader.ensureWeights()` at startup),
+    /// and resolves the SSIMULACRA2 lossy floor (throws if the binary is missing, unless a
+    /// `lossyFloor` is injected — e.g. a future pure-Swift port).
     /// - Parameters:
     ///   - level: restoration level (`.off` → encode-only; `.balanced` default).
     ///   - gateThreshold: restoration-pays gate point (ADR-0016, ~0.78).
+    ///   - lossyFloor: override the encode-floor metric (default: SSIMULACRA2 binary).
     ///   - maxPatches: NR-IQA patch budget.
     ///   - maxWholePixels/tileSize/overlap: print-res tiling geometry (Phase 3d).
     public static func make(
         level: OptimizationLevel = .balanced,
         gateThreshold: Float = 0.78,
+        lossyFloor: (any StillQualityScoring)? = nil,
         maxPatches: Int = 8,
         maxWholePixels: Int = 3840 * 2160,
         tileSize: Int = 512,
@@ -41,14 +42,16 @@ public enum SignageStillOptimizer {
         let restoration = try StillRestorationFactory.makeTiledRestoration(
             level: level, scorer: head, threshold: gateThreshold,
             maxWholePixels: maxWholePixels, tileSize: tileSize, overlap: overlap)
-        return ImageBridgeFactory.makeOptimizer(scorer: SigLIP2StillScorer(head), frameProcessor: restoration)
+        let floor = try lossyFloor ?? BinarySSIMULACRA2Scorer()
+        return ImageBridgeFactory.makeOptimizer(scorer: floor, frameProcessor: restoration)
     }
 
-    /// Recommended settings for a lossy signage target (HEIC/JPEG) at the calibrated floor.
-    public static func settings(format: StillOutputFormat, restore: Bool = true) -> StillOptimizationSettings {
+    /// Recommended settings for a lossy signage target (HEIC/AVIF/JPEG) at the SSIMULACRA2 floor.
+    public static func settings(format: StillOutputFormat, restore: Bool = true,
+                                floor: Double = recommendedFloor) -> StillOptimizationSettings {
         StillOptimizationSettings(
             format: format, restore: restore,
-            search: StillQualityTargetSearch(targetScore: recommendedFloor,
-                                             qualityRange: 0.3 ... 1.0, slack: 0.0, maxProbes: 8))
+            search: StillQualityTargetSearch(targetScore: floor,
+                                             qualityRange: 0.3 ... 1.0, slack: 1.0, maxProbes: 8))
     }
 }
