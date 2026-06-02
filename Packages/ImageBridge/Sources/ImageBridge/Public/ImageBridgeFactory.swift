@@ -1,3 +1,4 @@
+import FormatBridge   // FrameProcessor (the reused AI-chain seam)
 import Foundation
 
 /// Public entry point — mirrors `FormatBridgeFactory` (PRD §8). Phase 1 wires the
@@ -40,5 +41,17 @@ public enum ImageBridgeFactory {
     ) -> StillQualityTargetEncoder {
         StillQualityTargetEncoder(encoder: ImageIOEncoderImpl(), decoder: ImageIODecoderImpl(),
                                   scorer: scorer, search: search)
+    }
+
+    /// End-to-end "smart optimize" (PRD §6 / Phase 4): decode → optional restoration
+    /// (`frameProcessor`) → quality-target lossy encode (clearing `scorer`'s floor) or
+    /// lossless oxipng PNG. Pass the SigLIP2 NR-IQA scorer + the tiled IQA-gated NAFNet
+    /// chain from ImageBridgeForge for the signage default.
+    public static func makeOptimizer(
+        scorer: any StillQualityScoring,
+        frameProcessor: (any FrameProcessor)? = nil
+    ) -> StillOptimizer {
+        StillOptimizer(decoder: ImageIODecoderImpl(), encoder: ImageIOEncoderImpl(),
+                       scorer: scorer, frameProcessor: frameProcessor)
     }
 }
