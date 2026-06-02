@@ -24,4 +24,15 @@ public enum ImageBridgeFactory {
     public static func makeOrchestrator() -> any StillConversionOrchestrating {
         StillConversionOrchestratorImpl(decoder: ImageIODecoderImpl(), encoder: ImageIOEncoderImpl())
     }
+
+    /// Quality-targeted lossy encoder (PRD §6) — smallest JPEG/HEIC clearing the
+    /// injected perceptual floor. `scorer` is supplied by the runner (SigLIP2
+    /// NR-IQA for signage, or SSIMULACRA2 full-ref), never linked into the bridge.
+    public static func makeQualityTargetEncoder(
+        scorer: any StillQualityScoring,
+        search: StillQualityTargetSearch
+    ) -> StillQualityTargetEncoder {
+        StillQualityTargetEncoder(encoder: ImageIOEncoderImpl(), decoder: ImageIODecoderImpl(),
+                                  scorer: scorer, search: search)
+    }
 }
