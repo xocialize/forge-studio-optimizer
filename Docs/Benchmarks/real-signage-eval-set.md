@@ -207,3 +207,19 @@ Reports (local): `signage-sr-report.json` (clean-LR), `signage-hd4k-report.json`
    on clean masters (~2% size for +0.24 VMAF); savings come from the smart
    re-encode. Remaining: gate-flag plumbing + full subset (ADR-0012 §Consequences).
 3. Local manifest lives in `IBM_Pairs/` (off-repo); only this spec is committed.
+
+## 2026-06-01 — capstone closes the eval-set loop (#43 done)
+
+The full ship pipeline was run across the real signage clips
+(`Docs/Benchmarks/signage-pipeline-capstone.md`): VMAF-targeted **HEVC (Step 1) vs
+AV1 (Step 4)** at VMAF≥95. AV1 hits target on every clip at 0.13–1.73 Mbps; HEVC
+matches at low bitrate too once the **untagged-colour decode bug (#61)** — which the
+eval set *surfaced* on the untagged ferrari/sevilla masters — was fixed (sevilla
+82.9→94.97 Mbps after the fix). The set also drove the **flat-intro sampling** fix
+(#60). This is the eval set doing its job: exercising the pipeline on real signage
+caught two real issues synthetic clips never would.
+
+**Status: DONE.** The set (12-clip spec + 7 delivered native-4K triplets, all
+off-repo/proprietary) is built and has validated SR, compression, and codec-choice
+end-to-end. Reaching exactly 12 native-4K triplets is off-repo content curation
+(more IBM Think masters), not a code/blocking item.
