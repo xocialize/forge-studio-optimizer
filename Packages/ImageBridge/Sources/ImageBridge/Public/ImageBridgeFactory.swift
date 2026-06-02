@@ -25,6 +25,12 @@ public enum ImageBridgeFactory {
         StillConversionOrchestratorImpl(decoder: ImageIODecoderImpl(), encoder: ImageIOEncoderImpl())
     }
 
+    /// Animated GIF/APNG → MP4 (ADR-0022) via FormatBridge's VideoToolbox encoder.
+    /// The only ImageBridge path that emits video; static stills use `makeOrchestrator`.
+    public static func makeAnimatedToVideoConverter() -> AnimatedToVideoConverter {
+        AnimatedToVideoConverter(decoder: ImageIODecoderImpl())
+    }
+
     /// Quality-targeted lossy encoder (PRD §6) — smallest JPEG/HEIC clearing the
     /// injected perceptual floor. `scorer` is supplied by the runner (SigLIP2
     /// NR-IQA for signage, or SSIMULACRA2 full-ref), never linked into the bridge.

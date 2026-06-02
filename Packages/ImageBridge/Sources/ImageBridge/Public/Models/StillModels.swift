@@ -38,10 +38,13 @@ public struct StillMetadata: Sendable {
     public let dpi: Double?             // pixels-per-inch, when present
     public let exifOrientation: Int     // 1…8 (TIFF/EXIF); 1 = up
     public let frameCount: Int          // >1 = animated/multi-page → sequence path (§7)
+    /// Per-frame display durations in seconds (animated GIF/APNG); nil for stills and
+    /// untimed multi-page sources (PDF/TIFF). Drives animated→video frame timing (§7).
+    public let frameDelays: [Double]?
 
     public init(format: StillFormat, width: Int, height: Int, bitDepth: Int,
                 alpha: AlphaMode, iccProfile: Data?, dpi: Double?,
-                exifOrientation: Int, frameCount: Int) {
+                exifOrientation: Int, frameCount: Int, frameDelays: [Double]? = nil) {
         self.format = format
         self.width = width
         self.height = height
@@ -51,6 +54,7 @@ public struct StillMetadata: Sendable {
         self.dpi = dpi
         self.exifOrientation = exifOrientation
         self.frameCount = frameCount
+        self.frameDelays = frameDelays
     }
 }
 

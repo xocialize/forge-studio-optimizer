@@ -55,16 +55,8 @@ final class StillConversionOrchestratorImpl: StillConversionOrchestrating, @unch
         return result
     }
 
-    /// Run the (opaque-RGB) FrameProcessor, handling alpha at the boundary (PRD §4):
-    /// images with transparency are un-premultiplied → processed → recombined, so
-    /// the models never see premultiplied RGBA. No processor / no alpha → direct.
     private func run(_ buffer: CVPixelBuffer, processor: (any FrameProcessor)?,
                      alpha: AlphaMode) throws -> CVPixelBuffer {
-        guard let fp = processor else { return buffer }      // passthrough preserves alpha as-is
-        guard alpha != .none, let (opaque, plane) = AlphaSplitter.split(buffer) else {
-            return fp.process(buffer)                        // opaque → process directly
-        }
-        let processedRGB = fp.process(opaque)
-        return AlphaSplitter.recombine(rgb: processedRGB, alpha: plane) ?? processedRGB
+        FrameRun.run(buffer, processor: processor, alpha: alpha)
     }
 }

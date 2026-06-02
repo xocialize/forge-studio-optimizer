@@ -79,11 +79,35 @@ final class ImageIODecoderImpl: StillDecoding, @unchecked Sendable {
             return .straight
         }()
 
+        let fmt = Self.format(from: src, url: url)
         return StillMetadata(
-            format: Self.format(from: src, url: url),
+            format: fmt,
             width: w, height: h, bitDepth: depth, alpha: alpha,
-            iccProfile: icc, dpi: dpi, exifOrientation: orientation, frameCount: frameCount
+            iccProfile: icc, dpi: dpi, exifOrientation: orientation, frameCount: frameCount,
+            frameDelays: frameCount > 1 ? Self.frameDelays(from: src, count: frameCount, format: fmt) : nil
         )
+    }
+
+    /// Per-frame display durations (seconds) for animated GIF/APNG — drives §7
+    /// animated→video timing. Prefers the unclamped delay; falls back to the clamped
+    /// value, then a 10 fps default for any missing/zero entry (matches browser behaviour).
+    static func frameDelays(from src: CGImageSource, count: Int, format: StillFormat) -> [Double]? {
+        guard format == .gif || format == .png else { return nil }   // APNG reports as .png
+        var delays: [Double] = []
+        delays.reserveCapacity(count)
+        for i in 0 ..< count {
+            let props = (CGImageSourceCopyPropertiesAtIndex(src, i, nil) as? [CFString: Any]) ?? [:]
+            var d = 0.0
+            if let gif = props[kCGImagePropertyGIFDictionary] as? [CFString: Any] {
+                d = (gif[kCGImagePropertyGIFUnclampedDelayTime] as? Double)
+                    ?? (gif[kCGImagePropertyGIFDelayTime] as? Double) ?? 0
+            } else if let png = props[kCGImagePropertyPNGDictionary] as? [CFString: Any] {
+                d = (png[kCGImagePropertyAPNGUnclampedDelayTime] as? Double)
+                    ?? (png[kCGImagePropertyAPNGDelayTime] as? Double) ?? 0
+            }
+            delays.append(d > 0.0001 ? d : 0.1)
+        }
+        return delays.isEmpty ? nil : delays
     }
 
     static func format(from src: CGImageSource, url: URL) -> StillFormat {
