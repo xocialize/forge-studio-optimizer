@@ -60,6 +60,24 @@ struct PDFTests {
         #expect(p2.b > 200 && p2.r < 60, "page 2 blue")
     }
 
+    @Test("pdfDPI scales the raster resolution (the CLI's --dpi / --long-edge knob)")
+    func dpiScales() throws {
+        let dir = try tmpDir(); defer { try? FileManager.default.removeItem(at: dir) }
+        let pdf = dir.appendingPathComponent("doc.pdf"); makeTwoPagePDF(pdf)   // 144×72 pt
+
+        let m150 = try ImageBridgeFactory.makeProbe(pdfDPI: 150).probe(url: pdf)
+        let m300 = try ImageBridgeFactory.makeProbe(pdfDPI: 300).probe(url: pdf)
+        #expect(m150.width == 300 && m150.height == 150)
+        #expect(m300.width == 600 && m300.height == 300, "2× DPI → 2× pixels, got \(m300.width)x\(m300.height)")
+
+        // The orchestrator honors the DPI end-to-end (what the CLI drives).
+        let out = dir.appendingPathComponent("p.png")
+        try ImageBridgeFactory.makeOrchestrator(pdfDPI: 300).convert(
+            input: pdf, output: out, settings: StillEncoderSettings(format: .png), frameProcessor: nil)
+        let mo = try ImageBridgeFactory.makeProbe().probe(url: out)
+        #expect(mo.width == 600 && mo.height == 300)
+    }
+
     @Test("convertSequence fans a multi-page PDF out to per-page files")
     func multiPageOutput() throws {
         let dir = try tmpDir(); defer { try? FileManager.default.removeItem(at: dir) }

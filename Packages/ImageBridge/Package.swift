@@ -15,7 +15,11 @@ let package = Package(
     name: "ImageBridge",
     platforms: [.macOS(.v14)],
     products: [
-        .library(name: "ImageBridge", targets: ["ImageBridge"])
+        .library(name: "ImageBridge", targets: ["ImageBridge"]),
+        // `imagebridge` CLI — vector(PDF)→crisp high-DPI raster + optimize, and
+        // raster format-convert + optimize. Pure ImageIO/CoreGraphics/oxipng (no MLX),
+        // so it runs from `swift build`.
+        .executable(name: "imagebridge", targets: ["imagebridge-cli"])
     ],
     dependencies: [
         .package(name: "FormatBridge", path: "../FormatBridge"),
@@ -38,6 +42,10 @@ let package = Package(
                 .linkedFramework("CoreVideo"),
                 .linkedFramework("UniformTypeIdentifiers"),
             ]
+        ),
+        .executableTarget(
+            name: "imagebridge-cli",
+            dependencies: ["ImageBridge"]
         ),
         .testTarget(
             name: "ImageBridgeTests",

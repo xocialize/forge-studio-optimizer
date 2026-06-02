@@ -7,12 +7,15 @@ import Foundation
 /// Phase 2 with the `StillQualityScoring` seam.
 public enum ImageBridgeFactory {
 
-    public static func makeProbe() -> any StillMediaProbing {
-        ImageIOProbeImpl()
+    /// Default DPI for rasterizing vector (PDF) input. ImageIO raster formats ignore it.
+    public static let defaultPDFDPI: Double = 150
+
+    public static func makeProbe(pdfDPI: Double = defaultPDFDPI) -> any StillMediaProbing {
+        ImageIOProbeImpl(pdfDPI: pdfDPI)
     }
 
-    public static func makeDecoder() -> any StillDecoding {
-        ImageIODecoderImpl()
+    public static func makeDecoder(pdfDPI: Double = defaultPDFDPI) -> any StillDecoding {
+        ImageIODecoderImpl(pdfDPI: pdfDPI)
     }
 
     public static func makeEncoder() -> any StillEncoding {
@@ -21,9 +24,10 @@ public enum ImageBridgeFactory {
 
     /// End-to-end orchestrator. Pass a `ForgeOptimizer.ModelChain` as the
     /// `frameProcessor` at the call site to run the AI chain unchanged; `nil`
-    /// (the default) is a passthrough conversion.
-    public static func makeOrchestrator() -> any StillConversionOrchestrating {
-        StillConversionOrchestratorImpl(decoder: ImageIODecoderImpl(), encoder: ImageIOEncoderImpl())
+    /// (the default) is a passthrough conversion. `pdfDPI` controls vector
+    /// rasterization (raise it for crisp small text on signage maps).
+    public static func makeOrchestrator(pdfDPI: Double = defaultPDFDPI) -> any StillConversionOrchestrating {
+        StillConversionOrchestratorImpl(decoder: ImageIODecoderImpl(pdfDPI: pdfDPI), encoder: ImageIOEncoderImpl())
     }
 
     /// Animated GIF/APNG → MP4 (ADR-0022) via FormatBridge's VideoToolbox encoder.
