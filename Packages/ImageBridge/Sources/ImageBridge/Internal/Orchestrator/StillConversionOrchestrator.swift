@@ -27,9 +27,20 @@ final class StillConversionOrchestratorImpl: StillConversionOrchestrating, @unch
             // (optimized GIF/APNG/animated-WebP, or transcode to HEVC/AV1 via
             // FormatBridge). Phase 1 emits the first frame only.
         }
-        // Alpha note (PRD §4): the AI models are opaque-RGB; alpha unassociate /
-        // recombine is Phase 3. Passthrough (nil processor) preserves alpha as-is.
-        let processed = frameProcessor?.process(first) ?? first
+        let processed = try run(first, processor: frameProcessor, alpha: meta.alpha)
         try encoder.encode(processed, settings: settings, metadata: meta, to: output)
+    }
+
+    /// Run the (opaque-RGB) FrameProcessor, handling alpha at the boundary (PRD §4):
+    /// images with transparency are un-premultiplied → processed → recombined, so
+    /// the models never see premultiplied RGBA. No processor / no alpha → direct.
+    private func run(_ buffer: CVPixelBuffer, processor: (any FrameProcessor)?,
+                     alpha: AlphaMode) throws -> CVPixelBuffer {
+        guard let fp = processor else { return buffer }      // passthrough preserves alpha as-is
+        guard alpha != .none, let (opaque, plane) = AlphaSplitter.split(buffer) else {
+            return fp.process(buffer)                        // opaque → process directly
+        }
+        let processedRGB = fp.process(opaque)
+        return AlphaSplitter.recombine(rgb: processedRGB, alpha: plane) ?? processedRGB
     }
 }
