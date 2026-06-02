@@ -60,6 +60,34 @@ struct PDFTests {
         #expect(p2.b > 200 && p2.r < 60, "page 2 blue")
     }
 
+    /// BGRA at an arbitrary pixel.
+    private func bgraAt(_ pb: CVPixelBuffer, _ x: Int, _ y: Int) -> (b: Int, g: Int, r: Int) {
+        CVPixelBufferLockBaseAddress(pb, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(pb, .readOnly) }
+        let stride = CVPixelBufferGetBytesPerRow(pb)
+        let p = CVPixelBufferGetBaseAddress(pb)!.assumingMemoryBound(to: UInt8.self)
+        let o = y * stride + x * 4
+        return (Int(p[o]), Int(p[o + 1]), Int(p[o + 2]))
+    }
+
+    @Test("rasterization FILLS the frame at DPI > 72 (no getDrawingTransform no-upscale margin)")
+    func fillsAtHighDPI() throws {
+        let dir = try tmpDir(); defer { try? FileManager.default.removeItem(at: dir) }
+        let pdf = dir.appendingPathComponent("doc.pdf"); makeTwoPagePDF(pdf)   // page 1 = solid red
+
+        // 144×72 pt at 288 DPI → 576×288 px, all red. The bug left red only in a 144×72
+        // centred patch with white corners — so CORNER pixels are the discriminating test.
+        let (frames, _) = try ImageBridgeFactory.makeDecoder(pdfDPI: 288).decode(url: pdf)
+        let f = frames[0]
+        let w = CVPixelBufferGetWidth(f), h = CVPixelBufferGetHeight(f)
+        #expect(w == 576 && h == 288)
+        for (x, y, label) in [(3, 3, "top-left"), (w - 4, 3, "top-right"),
+                              (3, h - 4, "bottom-left"), (w - 4, h - 4, "bottom-right")] {
+            let c = bgraAt(f, x, y)
+            #expect(c.r > 200 && c.b < 60, "\(label) must be the red fill, not white margin — got \(c)")
+        }
+    }
+
     @Test("pdfDPI scales the raster resolution (the CLI's --dpi / --long-edge knob)")
     func dpiScales() throws {
         let dir = try tmpDir(); defer { try? FileManager.default.removeItem(at: dir) }

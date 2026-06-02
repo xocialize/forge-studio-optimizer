@@ -84,11 +84,20 @@ enum PDFRasterizer {
         }
         ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))      // flatten onto white
         ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
-        // Map the crop box (+ the page's /Rotate) into the pixel rect, scaled to DPI.
-        let xform = page.getDrawingTransform(.cropBox, rect: CGRect(x: 0, y: 0, width: w, height: h),
-                                             rotate: 0, preserveAspectRatio: true)
-        ctx.concatenate(xform)
-        ctx.clip(to: page.getBoxRect(.cropBox))
+        // Scale points→pixels ourselves, THEN let getDrawingTransform handle only the
+        // rotation/origin fit at 1:1. CGPDFPage.getDrawingTransform never scales UP — given
+        // a pixel rect larger than the page (any DPI > 72) it 1:1-centers the page and leaves
+        // white margins (the bug that hid behind center-pixel tests). So we ctx.scaleBy(dpi/72)
+        // and ask it only for a POINT-sized (1:1) fit, which it maps faithfully (incl. /Rotate).
+        let box = page.getBoxRect(.cropBox)
+        let scale = dpi / 72.0
+        let rotated = page.rotationAngle % 180 != 0
+        let fitRect = CGRect(x: 0, y: 0,
+                             width: rotated ? box.height : box.width,
+                             height: rotated ? box.width : box.height)
+        ctx.scaleBy(x: scale, y: scale)
+        ctx.concatenate(page.getDrawingTransform(.cropBox, rect: fitRect, rotate: 0, preserveAspectRatio: true))
+        ctx.clip(to: box)
         ctx.drawPDFPage(page)
         return buffer
     }
