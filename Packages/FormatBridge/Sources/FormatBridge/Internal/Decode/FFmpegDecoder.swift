@@ -354,10 +354,38 @@ final class FFmpegDecoderImpl: VideoDecoding, @unchecked Sendable {
             throw FormatBridgeError.decodeFailed("sws_getCachedContext failed")
         }
 
+        // Pin swscale's colourspace so the YUV→NV12 repack doesn't apply its
+        // DEFAULT (= ITU-601, SWS_CS_DEFAULT) matrix to an UNTAGGED source — that
+        // bakes a 601-vs-709 colour drift into the decode, and thus into the
+        // VideoToolbox encode (which tags output 709): on untagged HD signage the
+        // measured VMAF collapsed (sevilla 82.9 vs 95) and the shipped colours
+        // drifted (#61). Use the source's tagged matrix, else the standard
+        // heuristic (BT.709 for HD ≥720, BT.601 for SD). src == dst colourspace +
+        // matched range → a clean repack, no conversion.
+        let useBT709: Bool
+        switch frame.pointee.colorspace {
+        case AVCOL_SPC_BT709: useBT709 = true
+        case AVCOL_SPC_BT470BG, AVCOL_SPC_SMPTE170M, AVCOL_SPC_SMPTE240M: useBT709 = false
+        default: useBT709 = height >= 720
+        }
+        if let coeffs = sws_getCoefficients(useBT709 ? SWS_CS_ITU709 : SWS_CS_ITU601) {
+            let srcRange: Int32 = (frame.pointee.color_range == AVCOL_RANGE_JPEG) ? 1 : 0
+            _ = sws_setColorspaceDetails(swsCtx, coeffs, srcRange, coeffs, 0, 0, 1 << 16, 1 << 16)
+        }
+
         let pixelBuffer = try pixelBufferConverter.createPixelBuffer(
             width: width, height: height,
             pixelFormat: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
         )
+
+        // Tag the decoded buffer's colour so VideoToolbox encode + any YUV→RGB use
+        // the same matrix the repack above assumed (consistent end-to-end, #61).
+        let matrix = useBT709 ? kCVImageBufferYCbCrMatrix_ITU_R_709_2 : kCVImageBufferYCbCrMatrix_ITU_R_601_4
+        let primaries = useBT709 ? kCVImageBufferColorPrimaries_ITU_R_709_2 : kCVImageBufferColorPrimaries_SMPTE_C
+        CVBufferSetAttachment(pixelBuffer, kCVImageBufferYCbCrMatrixKey, matrix, .shouldPropagate)
+        CVBufferSetAttachment(pixelBuffer, kCVImageBufferColorPrimariesKey, primaries, .shouldPropagate)
+        CVBufferSetAttachment(pixelBuffer, kCVImageBufferTransferFunctionKey,
+                              kCVImageBufferTransferFunction_ITU_R_709_2, .shouldPropagate)
 
         CVPixelBufferLockBaseAddress(pixelBuffer, [])
         defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, []) }

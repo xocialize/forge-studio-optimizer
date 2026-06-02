@@ -143,7 +143,7 @@ struct QualityTargetCLI {
     // MARK: - Run
 
     static func run() async throws {
-        let o = try parse()
+        var o = try parse()
         if o.restore { try await runRestore(o); return }
         if o.perShot { try await runPerShot(o); return }
         if o.score { try await runScore(o); return }
@@ -154,6 +154,8 @@ struct QualityTargetCLI {
         let info = try await FormatBridgeFactory.makeProbe().probe(url: o.input)
         guard let vs = info.videoStreams.first else { throw CLIError.noVideoStream }
         let fps = vs.frameRate > 0 ? vs.frameRate : 30.0
+        let tagged = try normalizeUntaggedColor(&o, vs: vs, ffmpeg: ffmpeg)
+        defer { if let t = tagged { try? FileManager.default.removeItem(at: t) } }
 
         log("source   : \(o.input.lastPathComponent)  \(vs.width)x\(vs.height) "
             + "@ \(fmt(fps)) fps  \(vs.codec)  "
@@ -508,11 +510,14 @@ struct QualityTargetCLI {
     /// for the smallest file meeting the VMAF floor, then full-encode at that CRF
     /// (with optional film-grain synthesis). Phase B swaps the subprocess for an
     /// in-process FFmpegXC+SVT-AV1 encoder behind the same `--codec av1` flag.
-    static func runAV1(_ o: Options) async throws {
+    static func runAV1(_ oIn: Options) async throws {
+        var o = oIn
         let ffmpeg = FFmpegVMAFScorer.resolveFFmpeg()
         let info = try await FormatBridgeFactory.makeProbe().probe(url: o.input)
         guard let vs = info.videoStreams.first else { throw CLIError.noVideoStream }
         let fps = vs.frameRate > 0 ? vs.frameRate : 30.0
+        let tagged = try normalizeUntaggedColor(&o, vs: vs, ffmpeg: ffmpeg)
+        defer { if let t = tagged { try? FileManager.default.removeItem(at: t) } }
         let sampleCount = o.maxFrames
         let sampleSeconds = Double(sampleCount) / fps
 
@@ -617,6 +622,39 @@ struct QualityTargetCLI {
             let l = String(data: err.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
             throw CLIError.ffmpeg("AV1 encode failed (crf \(crf)): \(l.suffix(400))")
         }
+    }
+
+    // MARK: - Untagged-colour normalisation (#61)
+
+    /// ffmpeg interprets an UNTAGGED source as BT.601 (SWS_CS_DEFAULT) while our
+    /// encoder tags output BT.709 — the inconsistency tanks the measured VMAF on
+    /// untagged HD clips (sevilla 82.9 vs 95). The SHIP output is already correct
+    /// (verified identical to the source read as 709); this only makes the BENCHMARK
+    /// self-consistent. Re-tag (stream copy, no re-encode) with the standard
+    /// heuristic (BT.709 for HD ≥720, SMPTE-170M/601 for SD) and point the run at
+    /// the copy. Returns the temp URL to clean up (nil when already tagged).
+    static func normalizeUntaggedColor(_ o: inout Options, vs: VideoStreamInfo,
+                                       ffmpeg: String) throws -> URL? {
+        guard vs.colorSpace == nil else { return nil }
+        let hd = vs.height >= 720
+        let cs = hd ? "bt709" : "smpte170m"
+        let out = FileManager.default.temporaryDirectory
+            .appendingPathComponent("fqt-color-\(UUID().uuidString).mp4")
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: ffmpeg)
+        p.arguments = ["-hide_banner", "-loglevel", "error", "-y", "-i", o.input.path,
+                       "-map", "0", "-c", "copy",
+                       "-color_primaries", cs, "-color_trc", "bt709",
+                       "-colorspace", cs, "-color_range", "tv", out.path]
+        let err = Pipe(); p.standardError = err; p.standardOutput = FileHandle.nullDevice
+        try p.run(); p.waitUntilExit()
+        guard p.terminationStatus == 0, FileManager.default.fileExists(atPath: out.path) else {
+            let l = String(data: err.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            throw CLIError.ffmpeg("colour re-tag failed: \(l.suffix(300))")
+        }
+        o.input = out
+        log("colour   : source untagged → assuming BT.\(hd ? "709 (HD)" : "601 (SD)") for measurement")
+        return out
     }
 
     // MARK: - ffmpeg reference

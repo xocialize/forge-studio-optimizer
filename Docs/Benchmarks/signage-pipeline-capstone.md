@@ -10,8 +10,8 @@ signage clips, via `forge-quality-target --codec {hevc,av1} --target 95`.
 | signage_abacus (4K) | line-art graphics | 94.8 / 0.74 | 94.7 / **0.39** | av1 ✓ |
 | signage_characters (4K) | flat-color graphics | 95.0 / 0.63 | 94.8 / **0.51** | av1 ✓ |
 | signage_layersb (portrait 4K) | layered graphics | 95.3 / 5.12 | 94.5 / **1.73** | av1 ✓ |
-| signage_ferrari (3240×1920, untagged) | gradient graphic | ~~87.0 / 2.79~~ → see below | 95.4 / **0.24** | av1 ✓ |
-| signage_sevilla (3240×1920, untagged) | gradient graphic | ~~83.1 / 2.80~~ → **94.97 / 0.34** when 709-tagged | 95.8 / **0.13** | av1 ✓ |
+| signage_ferrari (3240×1920, untagged) | gradient graphic | ~~87.0 / 2.79~~ → **94.5 / ~0.3** (#61 fixed) | 95.4 / **0.24** | av1 ✓ |
+| signage_sevilla (3240×1920, untagged) | gradient graphic | ~~83.1 / 2.80~~ → **94.97 / 0.34** (#61 fixed) | 95.8 / **0.13** | av1 ✓ |
 
 **Headline:** **AV1 (Step 4) hits VMAF ≥ 95 on every real signage clip at 0.13–1.73 Mbps** — and is
 the clear winner. The HEVC numbers for **ferrari/sevilla above are wrong — a measurement
@@ -41,9 +41,14 @@ wrong — it was a color bug.
 
 - **#60 (done):** sample representativeness — skip a flat lead-in so the search reflects real
   content (helps blank-intro clips like abacus; shipped). Main10 **ruled out** (not needed).
-- **#61 (the real bug):** untagged-source color handling — FormatBridge should assume BT.709 for
-  untagged HD (matching the standard heuristic + the reference), so decode + measurement + ship
-  output all agree. This is potentially a **real ship-output color drift** on untagged sources, not
-  just a measurement artifact (same class as the earlier BT.709 encoder-tag fix, now on decode).
+- **#61 (FIXED):** untagged-source color handling. Diagnosed: the **ship encode output is already
+  correct** (verified `inf` PSNR vs the source read as BT.709) — NOT a ship bug. The issue was a
+  benchmark inconsistency: ffmpeg decodes an untagged source as **BT.601** (`SWS_CS_DEFAULT`) while
+  our encoder tags output BT.709 → the VMAF reference disagreed → 83/87. Fix (two parts):
+  (1) `FFmpegDecoder` now tags decoded frames with the matrix (BT.709 for HD ≥720 / 601 for SD,
+  using the source tag when present) — correct hygiene that also fixes the restoration/CoreImage
+  path on untagged sources; (2) `forge-quality-target` normalises an untagged source (stream-copy
+  re-tag, no re-encode) before measuring. Result: sevilla 82.9→**94.97 @ 0.34 Mbps**, ferrari
+  86.8→**94.5**; FormatBridge suite 53/53 green.
 
 Reproduce: `forge-quality-target --input <clip> --codec {hevc,av1} --target 95 [--av1-preset 8]`.
