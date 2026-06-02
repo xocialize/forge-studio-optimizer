@@ -16,7 +16,13 @@ final class ImageIODecoderImpl: StillDecoding, @unchecked Sendable {
     /// in metadata and re-tagged on encode (PRD §9, the BT.709-pinning analog).
     private let ciContext = CIContext(options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB)!])
 
+    /// DPI to rasterize vector (PDF) input at. ImageIO raster formats ignore it.
+    private let pdfDPI: Double
+
+    init(pdfDPI: Double = PDFRasterizer.defaultDPI) { self.pdfDPI = pdfDPI }
+
     func decode(url: URL) throws -> (frames: [CVPixelBuffer], metadata: StillMetadata) {
+        if PDFRasterizer.isPDF(url) { return try PDFRasterizer.decode(url: url, dpi: pdfDPI) }
         guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else {
             throw ImageBridgeError.decodeFailed("CGImageSourceCreateWithURL(\(url.lastPathComponent))")
         }
@@ -129,7 +135,11 @@ final class ImageIODecoderImpl: StillDecoding, @unchecked Sendable {
 
 /// Probe = decode's metadata path without materialising pixels.
 final class ImageIOProbeImpl: StillMediaProbing, @unchecked Sendable {
+    private let pdfDPI: Double
+    init(pdfDPI: Double = PDFRasterizer.defaultDPI) { self.pdfDPI = pdfDPI }
+
     func probe(url: URL) throws -> StillMetadata {
+        if PDFRasterizer.isPDF(url) { return try PDFRasterizer.probe(url: url, dpi: pdfDPI) }
         guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else {
             throw ImageBridgeError.decodeFailed("CGImageSourceCreateWithURL(\(url.lastPathComponent))")
         }

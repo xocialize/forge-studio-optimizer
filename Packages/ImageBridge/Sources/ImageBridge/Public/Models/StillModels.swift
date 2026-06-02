@@ -5,9 +5,10 @@ import Foundation
 // reuses FormatBridge enums (OptimizationLevel, QualityPreset, ColorSpaceInfo)
 // where they apply rather than redefining.
 
-/// Input still container formats ImageBridge can decode (via ImageIO).
+/// Input still container formats ImageBridge can decode (ImageIO; `pdf` via CoreGraphics).
 public enum StillFormat: String, Sendable, CaseIterable {
     case png, jpeg, tiff, heic, bmp, gif
+    case pdf            // rasterized per page (multi-page → sequence)
     case unknown
 }
 

@@ -3,8 +3,9 @@ import FormatBridge
 import Foundation
 
 /// decode → (optional) `FrameProcessor` → encode. The processor is ForgeOptimizer's
-/// chain reused unchanged; `nil` is a passthrough. Phase 1 handles stills (1 frame);
-/// animated/multi-page sequence assembly is Phase 3 (PRD §7).
+/// chain reused unchanged; `nil` is a passthrough. `convert` emits one frame; multi-page
+/// (PDF) / multi-frame (TIFF) sources fan out to per-page files via `convertSequence`
+/// (PRD §7). Animated GIF→video is the FormatBridge handoff (ADR-0022), not here.
 final class StillConversionOrchestratorImpl: StillConversionOrchestrating, @unchecked Sendable {
 
     private let decoder: any StillDecoding
@@ -17,18 +18,41 @@ final class StillConversionOrchestratorImpl: StillConversionOrchestrating, @unch
 
     func convert(input: URL, output: URL, settings: StillEncoderSettings,
                  frameProcessor: (any FrameProcessor)?) throws {
+        let (frames, meta) = try decodeChecked(input)
+        let processed = try run(frames[0], processor: frameProcessor, alpha: meta.alpha)
+        try encoder.encode(processed, settings: settings, metadata: meta, to: output)
+    }
+
+    @discardableResult
+    func convertSequence(input: URL, output: URL, settings: StillEncoderSettings,
+                         frameProcessor: (any FrameProcessor)?) throws -> [URL] {
+        let (frames, meta) = try decodeChecked(input)
+        if frames.count == 1 {
+            try convert(input: input, output: output, settings: settings, frameProcessor: frameProcessor)
+            return [output]
+        }
+        let dir = output.deletingLastPathComponent()
+        let stem = output.deletingPathExtension().lastPathComponent
+        let ext = output.pathExtension
+        var written: [URL] = []
+        written.reserveCapacity(frames.count)
+        for (i, frame) in frames.enumerated() {
+            let processed = try run(frame, processor: frameProcessor, alpha: meta.alpha)
+            let page = dir.appendingPathComponent(String(format: "%@-%03d", stem, i + 1))
+                          .appendingPathExtension(ext)
+            try encoder.encode(processed, settings: settings, metadata: meta, to: page)
+            written.append(page)
+        }
+        return written
+    }
+
+    private func decodeChecked(_ input: URL) throws -> (frames: [CVPixelBuffer], metadata: StillMetadata) {
         guard FileManager.default.fileExists(atPath: input.path) else {
             throw ImageBridgeError.fileNotFound(input.path)
         }
-        let (frames, meta) = try decoder.decode(url: input)
-        guard let first = frames.first else { throw ImageBridgeError.decodeFailed("no frames decoded") }
-        if meta.frameCount > 1 {
-            // TODO(Phase 3): run the processor per frame + assemble the sequence
-            // (optimized GIF/APNG/animated-WebP, or transcode to HEVC/AV1 via
-            // FormatBridge). Phase 1 emits the first frame only.
-        }
-        let processed = try run(first, processor: frameProcessor, alpha: meta.alpha)
-        try encoder.encode(processed, settings: settings, metadata: meta, to: output)
+        let result = try decoder.decode(url: input)
+        guard !result.frames.isEmpty else { throw ImageBridgeError.decodeFailed("no frames decoded") }
+        return result
     }
 
     /// Run the (opaque-RGB) FrameProcessor, handling alpha at the boundary (PRD §4):
