@@ -103,9 +103,15 @@ let outURL = output.map { URL(filePath: $0) }
 do {
     let inInfo = try ImageBridgeFactory.makeProbe(pdfDPI: dpi).probe(url: inURL)
     let inBytes = (try? FileManager.default.attributesOfItem(atPath: inPath)[.size] as? Int) ?? 0
-    let dpiNote = isPDF ? " @ \(Int(dpi)) DPI → \(inInfo.width)x\(inInfo.height)px" : ""
-    print("input : \(inURL.lastPathComponent)  \(inInfo.format.rawValue) \(inInfo.width)x\(inInfo.height)"
-        + (isPDF ? " pt" : "")  + "  \(human(inBytes))" + (inInfo.frameCount > 1 ? "  (\(inInfo.frameCount) pages)" : "") + dpiNote)
+    let pages = inInfo.frameCount > 1 ? "  (\(inInfo.frameCount) pages)" : ""
+    if isPDF {
+        // True page size in points = pixels at 72 DPI; then the chosen-DPI raster.
+        let pt = try ImageBridgeFactory.makeProbe(pdfDPI: 72).probe(url: inURL)
+        print("input : \(inURL.lastPathComponent)  pdf \(pt.width)x\(pt.height) pt  \(human(inBytes))\(pages)"
+            + "  @ \(Int(dpi)) DPI → \(inInfo.width)x\(inInfo.height) px")
+    } else {
+        print("input : \(inURL.lastPathComponent)  \(inInfo.format.rawValue) \(inInfo.width)x\(inInfo.height)  \(human(inBytes))\(pages)")
+    }
 
     let settings = StillEncoderSettings(format: format, quality: quality,
                                         stripMetadata: strip, losslessOptimize: true, optimizeLevel: oxiLevel)
