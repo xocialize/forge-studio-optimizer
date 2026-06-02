@@ -7,15 +7,16 @@ import Foundation
 
 /// Input still container formats ImageBridge can decode (ImageIO; `pdf` via CoreGraphics).
 public enum StillFormat: String, Sendable, CaseIterable {
-    case png, jpeg, tiff, heic, bmp, gif
+    case png, jpeg, tiff, heic, avif, bmp, gif
     case pdf            // rasterized per page (multi-page → sequence)
     case unknown
 }
 
-/// Output still formats (Phase 1 ship tier = native ImageIO; AVIF/WebP are a
-/// later opt-in tier per ADR-0020).
+/// Output still formats. Ship tier = native ImageIO (HEIC/JPEG/PNG/TIFF, ADR-0020);
+/// AVIF is also native on macOS 13+ (royalty-free next-gen — the still analog of the
+/// AV1 video tier). WebP would need a vendored libwebp; deferred (AVIF supersedes it).
 public enum StillOutputFormat: String, Sendable, CaseIterable {
-    case png, jpeg, tiff, heic
+    case png, jpeg, tiff, heic, avif
 }
 
 /// How alpha is carried. Stills routinely have alpha; the AI models are trained

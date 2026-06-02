@@ -35,7 +35,7 @@ final class ImageIOEncoderImpl: StillEncoding, @unchecked Sendable {
         // ICC is embedded via the CGImage's own colour space (set above to the
         // source profile when preserved). Only quality + DPI go in the props dict.
         var props: [CFString: Any] = [:]
-        if settings.format == .jpeg || settings.format == .heic {
+        if settings.format == .jpeg || settings.format == .heic || settings.format == .avif {
             props[kCGImageDestinationLossyCompressionQuality] = settings.quality
         }
         if !settings.stripMetadata, let dpi = metadata?.dpi {
@@ -61,6 +61,7 @@ final class ImageIOEncoderImpl: StillEncoding, @unchecked Sendable {
         case .jpeg: return .jpeg
         case .tiff: return .tiff
         case .heic: return .heic
+        case .avif: return UTType("public.avif") ?? .heic   // native ImageIO encode (macOS 13+)
         }
     }
 }

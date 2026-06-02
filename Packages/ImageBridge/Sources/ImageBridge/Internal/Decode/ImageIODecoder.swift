@@ -117,6 +117,7 @@ final class ImageIODecoderImpl: StillDecoding, @unchecked Sendable {
             case UTType.jpeg.identifier: return .jpeg
             case UTType.tiff.identifier: return .tiff
             case UTType.heic.identifier, "public.heif": return .heic
+            case "public.avif": return .avif
             case UTType.bmp.identifier: return .bmp
             case UTType.gif.identifier: return .gif
             default: break
@@ -127,6 +128,7 @@ final class ImageIODecoderImpl: StillDecoding, @unchecked Sendable {
         case "jpg", "jpeg": return .jpeg
         case "tif", "tiff": return .tiff
         case "heic", "heif": return .heic
+        case "avif": return .avif
         case "bmp": return .bmp
         case "gif": return .gif
         default: return .unknown

@@ -81,6 +81,7 @@ $RUNNER --corpus ../../Tests/Corpus/manifest.json \
 | 0020 | **Still ship-encoder = ImageIO + oxipng (#63)** — native HEIC/JPEG/PNG/TIFF + lossless oxipng (MIT, vendored Rust→C staticlib); lossy palette quant (libimagequant, GPL-or-commercial) gated out of `.permissiveOnly` | Accepted |
 | 0021 | **Still quality-target search (#64)** — reuses the FormatBridge scorer/search seam; metric injected (`StillQualityScoring`: SigLIP2 NR-IQA default / SSIMULACRA2), never linked into the bridge | Accepted |
 | 0022 | **GIF/animated disposition** — animated → MP4 (HEVC via FormatBridge), static → PNG (lossless oxipng) | Accepted |
+| 0023 | **Next-gen still output — AVIF native (ImageIO `public.avif`, macOS 13+, $0), WebP deferred** — runtime probe showed AVIF is a native ImageIO encode type (no vendoring); WebP needs libwebp + AVIF supersedes it (same "royalty-free wins" logic as AV1, ADR-0017) | Accepted |
 
 > ADRs 0019–0022 are ImageBridge (renumbered from the draft's 0016–0019 to avoid colliding with the video ADRs above). ImageBridge PRD: `Docs/ImageBridge/ImageBridge-PRD-v0.1.md`.
 
