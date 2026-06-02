@@ -49,3 +49,9 @@ Snowflake*/
 
 # Swift coverage artifact
 *.profraw
+
+# transient local opt-in marker for MLX xcodebuild tests
+.forge_run_mlx
+
+# cargo build output for the vendored oxipng staticlib
+Packages/Oxipng/rust/target/
