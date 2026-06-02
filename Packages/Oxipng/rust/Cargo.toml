@@ -1,0 +1,20 @@
+[package]
+name = "oxipng_shim"
+version = "0.1.0"
+edition = "2021"
+description = "Minimal C-ABI shim over oxipng (lossless PNG optimization) for ImageBridge."
+license = "MIT"
+
+[lib]
+name = "oxipng_shim"
+crate-type = ["staticlib"]
+
+[dependencies]
+# Lossless PNG/APNG optimizer (MIT). Pinned; the C ABI below is version-stable.
+oxipng = { version = "9", default-features = false, features = ["parallel", "zopfli"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"   # never unwind across the C ABI

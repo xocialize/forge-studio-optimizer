@@ -90,6 +90,31 @@ struct RoundTripTests {
         #expect(m.format == .jpeg)
     }
 
+    @Test("oxipng lossless pass shrinks the PNG and preserves dimensions/pixels")
+    func oxipngOptimize() throws {
+        let dir = try tmpDir(); defer { try? FileManager.default.removeItem(at: dir) }
+        let png = dir.appendingPathComponent("in.png"); try makeTestPNG(png, w: 256, h: 192)
+        let (frames, meta) = try ImageBridgeFactory.makeDecoder().decode(url: png)
+
+        let enc = ImageBridgeFactory.makeEncoder()
+        let baseline = dir.appendingPathComponent("baseline.png")
+        let optimized = dir.appendingPathComponent("opt.png")
+        try enc.encode(frames[0], settings: StillEncoderSettings(format: .png, losslessOptimize: false),
+                       metadata: meta, to: baseline)
+        try enc.encode(frames[0], settings: StillEncoderSettings(format: .png, losslessOptimize: true, optimizeLevel: 4),
+                       metadata: meta, to: optimized)
+
+        func size(_ u: URL) -> Int { (try? FileManager.default.attributesOfItem(atPath: u.path)[.size] as? Int) ?? 0 }
+        let b = size(baseline), o = size(optimized)
+        print("[oxipng] baseline \(b) B → optimized \(o) B  (\(b > 0 ? Int((1 - Double(o)/Double(b)) * 100) : 0)% smaller)")
+        #expect(o > 0)
+        #expect(o <= b, "oxipng must never enlarge (got \(o) vs \(b))")
+
+        // Lossless: still a valid PNG of the same dimensions.
+        let m = try ImageBridgeFactory.makeProbe().probe(url: optimized)
+        #expect(m.width == 256 && m.height == 192 && m.format == .png)
+    }
+
     @Test("identity FrameProcessor preserves dimensions through the orchestrator")
     func identityProcessor() throws {
         let dir = try tmpDir(); defer { try? FileManager.default.removeItem(at: dir) }

@@ -47,6 +47,12 @@ final class ImageIOEncoderImpl: StillEncoding, @unchecked Sendable {
         guard CGImageDestinationFinalize(dest) else {
             throw ImageBridgeError.encodeFailed("CGImageDestinationFinalize")
         }
+
+        // Lossless PNG optimization pass (oxipng). Pixels preserved exactly.
+        if settings.format == .png && settings.losslessOptimize {
+            try OxipngOptimizer.optimizeInPlace(url, level: settings.optimizeLevel,
+                                                stripMetadata: settings.stripMetadata)
+        }
     }
 
     static func utType(_ f: StillOutputFormat) -> UTType {

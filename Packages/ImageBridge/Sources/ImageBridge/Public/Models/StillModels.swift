@@ -60,10 +60,19 @@ public struct StillEncoderSettings: Sendable {
     public let quality: Double
     /// Drop ICC/EXIF/DPI on write (oxipng `--strip` analog). Default: preserve.
     public let stripMetadata: Bool
+    /// Run the lossless PNG optimizer (oxipng) after writing a PNG — the
+    /// "pngcrush but keeps quality" pass. Lossless ⇒ pixels preserved exactly.
+    /// No effect on non-PNG formats. Default: on for PNG.
+    public let losslessOptimize: Bool
+    /// oxipng preset 0…6 (higher = slower / smaller). Default 4 (good ratio/speed).
+    public let optimizeLevel: UInt8
 
-    public init(format: StillOutputFormat, quality: Double = 0.9, stripMetadata: Bool = false) {
+    public init(format: StillOutputFormat, quality: Double = 0.9, stripMetadata: Bool = false,
+                losslessOptimize: Bool = true, optimizeLevel: UInt8 = 4) {
         self.format = format
         self.quality = max(0, min(1, quality))
         self.stripMetadata = stripMetadata
+        self.losslessOptimize = losslessOptimize
+        self.optimizeLevel = min(6, optimizeLevel)
     }
 }

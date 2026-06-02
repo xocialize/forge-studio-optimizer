@@ -18,13 +18,15 @@ let package = Package(
         .library(name: "ImageBridge", targets: ["ImageBridge"])
     ],
     dependencies: [
-        .package(name: "FormatBridge", path: "../FormatBridge")
+        .package(name: "FormatBridge", path: "../FormatBridge"),
+        .package(name: "Oxipng", path: "../Oxipng")
     ],
     targets: [
         .target(
             name: "ImageBridge",
             dependencies: [
-                .product(name: "FormatBridge", package: "FormatBridge")
+                .product(name: "FormatBridge", package: "FormatBridge"),
+                .product(name: "COxipng", package: "Oxipng")
             ],
             swiftSettings: [
                 .enableExperimentalFeature("StrictConcurrency")
