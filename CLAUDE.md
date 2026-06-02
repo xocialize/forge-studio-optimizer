@@ -77,6 +77,12 @@ $RUNNER --corpus ../../Tests/Corpus/manifest.json \
 | 0016 | **Step 3 IQA gate = scoped "restoration-pays" (#56)** — v2 SigLIP2 head (data-mix iteration: frame-level + multi-res + DISTS labels) scores low where NAFNet pays (encoded/photographic), high on flat-vector (045/094, where orig≈restored = a wash). Ship default-on, threshold ~0.78; revisit fine-tuning post-ImageBridge | Accepted |
 | 0017 | **AV1 tier via SVT-AV1 subprocess first (#52)** — no HW AV1 encode on Apple Silicon (VT −12908) + FFmpegXC has no AV1 encoder, so Phase A = `forge-quality-target --codec av1` (VMAF-targeted SVT-AV1 CRF search + `--film-grain`, via ffmpeg). AV1 ~44–53% < HEVC on signage. In-process FFmpegXC+SVT-AV1 = Phase B (end-polish) | Accepted |
 | 0018 | **Steps 5/6 deferred — AV1 is the premium path (#53)** — A/B (graphics @ VMAF95, vs our real VT-HEVC ~0.37 Mbps): AV1 ~57% / x265-veryslow ~41% smaller; x264 *larger*. Licensed x264/x265 premium NOT worth the GPL+patent spend (AV1 covers premium, royalty-free). Convex-hull marginal for single-rendition signage. **#59 resolved: the "74% VT-HEVC" alarm was an ffmpeg `-q:v` wrapper artifact — our actual encoder is healthy (~41% behind x265, normal HW tradeoff)** | Accepted |
+| 0019 | **ImageBridge = sibling package (#62)** — native ImageIO/PDFKit still I/O, NOT a FormatBridge extension; reuses ForgeOptimizer's `FrameProcessor` chain unchanged (a still = 1-frame CVPixelBuffer) | Accepted |
+| 0020 | **Still ship-encoder = ImageIO + oxipng (#63)** — native HEIC/JPEG/PNG/TIFF + lossless oxipng (MIT, vendored Rust→C staticlib); lossy palette quant (libimagequant, GPL-or-commercial) gated out of `.permissiveOnly` | Accepted |
+| 0021 | **Still quality-target search (#64)** — reuses the FormatBridge scorer/search seam; metric injected (`StillQualityScoring`: SigLIP2 NR-IQA default / SSIMULACRA2), never linked into the bridge | Accepted |
+| 0022 | **GIF/animated disposition** — animated → MP4 (HEVC via FormatBridge), static → PNG (lossless oxipng) | Accepted |
+
+> ADRs 0019–0022 are ImageBridge (renumbered from the draft's 0016–0019 to avoid colliding with the video ADRs above). ImageBridge PRD: `Docs/ImageBridge/ImageBridge-PRD-v0.1.md`.
 
 Benchmark report: `Docs/Benchmarks/benchmark-c4-ab-v2-e06ff85.json`. Real-signage eval spec: `Docs/Benchmarks/real-signage-eval-set.md`.
 
