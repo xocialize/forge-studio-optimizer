@@ -133,58 +133,51 @@ Benchmark report: `Docs/Benchmarks/benchmark-c4-ab-v2-e06ff85.json`. Real-signag
   63%-vs-source headline). Fixed-CRF gates retired from GateEvaluator (v1.1).
   Gated by `Tools/quality_target_gate.py` (uses `forge-quality-target --fixed/--json`),
   not the optimizer benchmark. `Docs/Benchmarks/adr0014-gate-measurement.md`.
-- **SigLIP2 NR-IQA** training + integration (retires the v0.3 KADID non-commercial scorer).
+- **SigLIP2 NR-IQA — DONE** (#56/#57, ADR-0016): v2 "restoration-pays" head trained (val SRCC 0.902),
+  backbone parity 0.9999, shipped as the Step-3 gate (video) + ImageBridge restoration gate. Retires
+  the v0.3 KADID non-commercial scorer. (For the still LOSSY floor, SSIMULACRA2 is used instead — #71.)
 - **12-clip real-signage eval set** (IBM Think 26, local/proprietary — not committed): `Docs/Benchmarks/real-signage-eval-set.md`.
 - Real-signage finding: shipped playback SR scored **97.8–99.7 VMAF** on real content incl. text → PRD VMAF≥90 met; Phase F (text-aware SR) deprioritized.
 
-### Resume next (2026-06-01 handoff)
+### Status (2026-06-02) — feature build-out COMPLETE; remaining work is optional
 
-The **VideoToolbox compression story (Steps 0/1) + the §4 gate ship and are validated.**
-Steps 0/1 = **63% @ VMAF≥95 / 79% @ ≥90** vs source (cross-checked); Step 2 deferred
-(ADR-0015, capped per-shot ties); #54 gate PASS (16.6% vs-flat ≥15%). NAFNet B.1→B.5 ships.
+**Video (Steps 0–4) all ship + validated:**
+- **Step 0/1** — VideoToolbox HEVC/H.264 + VMAF-targeted per-title: **63% @ VMAF≥95 / 79% @ ≥90**
+  vs source (cross-checked). §4 gate PASS (16.6% vs-flat ≥15%, #54, ADR-0014).
+- **Step 2** — per-shot deferred (ADR-0015 — capped per-shot only ties on VT constant-quality).
+- **Step 3 (#51)** — IQA-gated NAFNet restoration ships **default-on**: SigLIP2 NR-IQA
+  "restoration-pays" gate (v2 head, val SRCC 0.902, ADR-0016), backbone parity cosine 0.9999 (#57).
+  NAFNet B.1→B.5 trained + wired (best val PSNR 41.515 dB, ADR-0010).
+- **Step 4 (#52 Phase A / #58 Phase B)** — AV1 opt-in tier, **in-process** SVT-AV1
+  (`FormatBridge.FFmpegAV1Encoder`, self-contained — no ffmpeg subprocess; ADR-0017). ~44–53% < HEVC.
+- **Steps 5/6 deferred** (ADR-0018 — AV1 is the royalty-free premium path; x264/convex-hull not worth it).
 
-**Step 3 (#51) — IQA gate: decided + de-risked, one wiring stretch left.**
-- **#56 ✅ (ADR-0016)** — the data-mix iteration resolved the v1 gate gap. v2 head
-  (`generate_iqa_dataset.py` reworked: **frame-level** degrade + **multi-res** + heavier
-  params + resumable; even-dims bug fixed) → `data/iqa_ds2` (4197 tiles) → **val SRCC 0.902 /
-  PLCC 0.956**. Real-frame eval reframed the 045 "miss" as **correct**: it's a working
-  **"does-restoration-pay" gate** — low where NAFNet pays (crush 0.66, dvd4 0.58), high on
-  flat-vector 045/094 where NAFNet is a **wash** (orig 0.970 → restored 0.968; 64-patch min
-  still ≈ clean). Threshold ~0.78. **Decision: ship scoped for signage; revisit fine-tuning
-  post-ImageBridge.** (`step3-iqa-gate-findings.md` Update 2026-06-01b + ADR-0016.)
-- **#57 ✅** — fixing #27's SigLIP2 backbone loader was a prerequisite (it was broken three
-  ways on the real 8-bit checkpoint; see Conventions). Fixed + **parity-validated cosine
-  0.9999** vs PyTorch FP → quant gap negligible, head + ~0.78 threshold transfer to Swift.
-- **▶ REMAINING (the gate wiring, now unblocked):** (1) load `data/iqa_head2/
-  siglip2_iqa_head.safetensors` into `SigLIP2_IQA` + ship to `ForgeOptimizer/.../Resources/`
-  (head keys fc1/fc2 match); (2) a `NoReferenceQualityScoring` adapter — CVPixelBuffer → 224
-  patches → NHWC MLXArray (mean/std 0.5) → `SigLIP2QualityScorer.score()` → patch-mean Float
-  (`poolerOutput` is already mean-pool); (3) verify clean>degraded ranking + the ~0.78 point
-  hold in Swift on `data/iqa_eval_frames/`; (4) flip `makeGatedChain` default-on (replace the
-  `BlockinessQualityScorer` baseline); (5) run via **xcodebuild**. Eval frames + v2 head live
-  OFF-REPO under `Packages/ForgeTraining/data/` (gitignored; weights ship per ADR-0010).
+**ImageBridge v1 feature-complete** (sibling still package, ADR-0019–0023):
+Phases 1–4 (ImageIO/PDF I/O, oxipng lossless, quality-target search, alpha split/recombine,
+multi-page PDF, animated GIF→MP4, print-res tiling, IQA-gated still optimize) + the `imagebridge`
+CLI (vector PDF → crisp high-DPI raster) + AVIF output (native ImageIO) + **SSIMULACRA2** full-ref
+lossy floor (#71, via the reference binary; SigLIP2 NR-IQA = restoration gate, too flat for the floor).
 
-Other remaining: close **#33** (stale — superseded by ADR-0013; the benchmark's inlined
-AVAssetWriter is fine, "migrate to NativeEncoder" no longer applies — decide close/re-scope);
-**#52** Step 4 (SVT-AV1 opt-in — needs SVT-AV1 vendored), #53 (x264/convex-hull), #15 (PocketDVDNet),
-#23 (QualiCLIP+ Plan-B / post-ImageBridge head fine-tune).
+**Remaining — all OPTIONAL / conditional:**
+- **#23** SigLIP2 gate / QualiCLIP+ fine-tune — research / off-device training (gate is good enough for signage now).
+- **#45** extract a shared `format-bridge` package (Forge + studio) — refactor cleanup.
+- **#24/#25** watch-list crons (DCVC-RT 90-day, SPANV2 60-day); **#30** conditional (QualiCLIP+ CC-BY-NC, only if Plan-B activates).
+- ImageBridge: **WebP** output (ADR-0023, only if a consumer needs it); **pure-Swift SSIMULACRA2** port (only if on-device still-target needed).
+- **#33 CLOSED** — superseded by ADR-0013 (encoder is VideoToolbox, not NativeEncoder); the benchmark's inlined AVAssetWriter is fine, "migrate to NativeEncoder" no longer applies.
 
-**Validate-on-REAL-content catches keep paying off** (now 5×): VMAF reference corruption (#55),
-BT.601-vs-709 colour drift, stale manifest path, blockiness mis-gate, and this session's two —
-the AVAssetWriter interleave **deadlock** (#32, a real bug masked as a flaky test) and #27's
-**broken-against-real-weights** SigLIP2 loader (#57). All distilled into Conventions.
+**Validate-on-REAL-content / look-at-the-right-pixels catches — now 8×** (all in Conventions):
+VMAF reference corruption (#55), BT.601-vs-709 colour drift (#61), stale manifest path, blockiness
+mis-gate, AVAssetWriter interleave deadlock-as-flaky (#32), #27/#57 broken-against-real-weights
+SigLIP2 loader, SigLIP2-flat-for-lossy-compression (#71), PDF high-DPI white-margin (corners-not-center).
 
-Build reminder: **xcodebuild** for runnable MLX (ADR-0011); `swift build` only
-compile-checks; FormatBridge/forge-quality-target VMAF+per-shot paths run under `swift
-build` (no MLX), but `--restore` (NAFNet) needs xcodebuild. ~6 build cycles/session normal.
+Build reminder: **xcodebuild** for runnable MLX (ADR-0011); `swift build` compile-checks + runs the
+non-MLX paths (FormatBridge / ImageBridge / `forge-quality-target` incl. **in-process AV1**); `--restore`
+(NAFNet) + ImageBridgeForge (SigLIP2) need xcodebuild. FFmpegXC rebuild (now incl. **SVT-AV1**):
+`cd Packages/FFmpegXC && ./build.sh` — vendored `.a` gitignored.
 
-**Encoding strategy (research adopted, `forge-studio-encoding-strategy-v2.md`):** Vimeo ≈
-per-title x264 ~CRF 20, no SR. Forge ships **VideoToolbox HEVC + VMAF-targeted per-title**
-(per-shot doesn't pay on VT), beats Vimeo via NAFNet (degraded input) + HD→4K SR + opt-in AV1.
-
-**ImageBridge** (post-video static-image sibling package) noted in memory
-(`imagebridge-seed.md`): reuses our optimization unchanged; flags (ADR-number placeholders,
-alpha=separate instances, tiling, licensing) captured. Do NOT let it derail video.
+**Encoding strategy (`forge-studio-encoding-strategy-v2.md`):** Vimeo ≈ per-title x264 ~CRF 20, no SR.
+Forge ships **VideoToolbox HEVC + VMAF-targeted per-title** (per-shot doesn't pay on VT), beats Vimeo
+via NAFNet (degraded input) + HD→4K SR + opt-in in-process AV1.
 
 ## Provenance
 
