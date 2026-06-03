@@ -86,7 +86,7 @@ struct QualityTargetCLI {
     usage: forge-quality-target --input <clip> [options]
       --input,  -i  <path>   source clip (required)
       --target, -t  <vmaf>   target VMAF floor (default 95)
-      --codec       hevc|h264|av1 (default hevc; av1 = SVT-AV1 via ffmpeg, Step 4)
+      --codec       hevc|h264|av1 (default hevc; av1 = in-process SVT-AV1, Step 4 / #58)
       --max-frames  <n>      sample frame cap (default 120)
       --max-probes  <n>      sample-encode probe cap (default 8)
       --slack       <pts>    accept VMAF >= target - slack (default 0.5)
@@ -552,7 +552,7 @@ struct QualityTargetCLI {
             let crf = (lo + hi) / 2
             let probe = tmp.appendingPathComponent("probe-\(crf).mp4")
             try encodeAV1(source: o.input, frames: sampleCount, crf: crf, preset: o.av1Preset,
-                          filmGrain: nil, to: probe, ffmpeg: ffmpeg)
+                          filmGrain: nil, to: probe)
             let vmaf = try await scorer.score(reference: reference, distorted: probe)
             probes += 1
             log("  crf \(crf): VMAF \(fmt(vmaf))  (\(fmt(Double(fileSize(probe)) / 1e6)) MB sample)")
@@ -568,7 +568,7 @@ struct QualityTargetCLI {
                       : "encoding : TARGET UNREACHABLE — full clip @ crf \(chosen) (best effort) …")
         let clock = Date()
         try encodeAV1(source: o.input, frames: nil, crf: chosen, preset: o.av1Preset,
-                      filmGrain: o.filmGrain, to: output, ffmpeg: ffmpeg)
+                      filmGrain: o.filmGrain, to: output)
         let elapsed = Date().timeIntervalSince(clock)
 
         // Report (+ measure final VMAF on the sample for a sanity figure).
@@ -598,30 +598,15 @@ struct QualityTargetCLI {
         if let keep = o.keepOutput { log("kept output    : \(keep.path)") }
     }
 
-    /// Encode (a prefix of) `source` to AV1 via ffmpeg + libsvtav1. `frames == nil`
-    /// encodes the whole clip; otherwise the first `frames` frames (probe). Tagged
-    /// BT.709. Film-grain synthesis (with source denoise) when `filmGrain` is set.
+    /// Encode (a prefix of) `source` to AV1 **in-process** via FFmpegXC's SVT-AV1 (#58,
+    /// ADR-0017 Phase B) — self-contained, no ffmpeg subprocess. `frames == nil` encodes the
+    /// whole clip; otherwise the first `frames` frames (CRF-search probe). Tagged BT.709;
+    /// film-grain synthesis (with source denoise) when `filmGrain` is set. (VMAF measurement
+    /// still uses the external tool; only the encode is now in-process.)
     static func encodeAV1(source: URL, frames: Int?, crf: Int, preset: Int,
-                          filmGrain: Int?, to out: URL, ffmpeg: String) throws {
-        try? FileManager.default.removeItem(at: out)
-        var args = ["-hide_banner", "-loglevel", "error", "-y", "-i", source.path, "-an"]
-        if let n = frames { args += ["-frames:v", "\(n)"] }
-        args += ["-c:v", "libsvtav1", "-preset", "\(preset)", "-crf", "\(crf)", "-pix_fmt", "yuv420p"]
-        if let g = filmGrain, g > 0 {
-            // film-grain=N synthesis; denoise the source first so the grain compresses
-            // out and is re-synthesised at decode (the canonical AV1 grain workflow).
-            args += ["-svtav1-params", "film-grain=\(g):film-grain-denoise=1"]
-        }
-        args += ["-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", out.path]
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: ffmpeg)
-        p.arguments = args
-        let err = Pipe(); p.standardError = err; p.standardOutput = FileHandle.nullDevice
-        try p.run(); p.waitUntilExit()
-        guard p.terminationStatus == 0, FileManager.default.fileExists(atPath: out.path) else {
-            let l = String(data: err.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            throw CLIError.ffmpeg("AV1 encode failed (crf \(crf)): \(l.suffix(400))")
-        }
+                          filmGrain: Int?, to out: URL) throws {
+        try FFmpegAV1Encoder.encode(source: source, output: out,
+            settings: .init(crf: crf, preset: preset, filmGrain: filmGrain, maxFrames: frames))
     }
 
     // MARK: - Untagged-colour normalisation (#61)
