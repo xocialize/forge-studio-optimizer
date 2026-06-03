@@ -24,6 +24,10 @@ FFMPEG_VERSION="7.1.1"
 DAV1D_VERSION="1.5.1"
 OPUS_VERSION="1.5.2"
 LIBVPX_TAG="v1.14.1"
+# SVT-AV1 (BSD-2 + AOM patent grant) — in-process AV1 ENCODE (#58, ADR-0017 Phase B).
+# Pinned to 2.3.0: the last v2-API release vanilla FFmpeg 7.1.1's libsvtav1 wrapper
+# compiles against (SVT-AV1 3.x changed the API). Encoder-only, static.
+SVT_AV1_VERSION="2.3.0"
 
 # Build settings
 ARCH="arm64"
@@ -113,6 +117,10 @@ download_source "libvpx" \
 download_source "opus" \
     "https://downloads.xiph.org/releases/opus/opus-${OPUS_VERSION}.tar.gz" \
     "opus-${OPUS_VERSION}"
+
+download_source "svt-av1" \
+    "https://gitlab.com/AOMediaCodec/SVT-AV1/-/archive/v${SVT_AV1_VERSION}/SVT-AV1-v${SVT_AV1_VERSION}.tar.gz" \
+    "SVT-AV1-v${SVT_AV1_VERSION}"
 
 echo ""
 
@@ -245,6 +253,34 @@ fi
 echo ""
 
 # =============================================================================
+# Step 4.5: Build SVT-AV1 (encoder only, static) — CMake
+# =============================================================================
+
+echo "=== Building SVT-AV1 (encoder) ==="
+cd "$SCRATCH_DIR/SVT-AV1-v${SVT_AV1_VERSION}"
+
+if [ ! -f "$DEPS_DIR/lib/libSvtAv1Enc.a" ]; then
+    rm -rf buildmac
+    cmake -S . -B buildmac \
+        -DCMAKE_INSTALL_PREFIX="$DEPS_DIR" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DBUILD_APPS=OFF \
+        -DBUILD_DEC=OFF \
+        -DBUILD_ENC=ON \
+        -DBUILD_TESTING=OFF \
+        -DCMAKE_OSX_ARCHITECTURES="$ARCH" \
+        -DCMAKE_OSX_DEPLOYMENT_TARGET="$DEPLOYMENT_TARGET" \
+        -DCMAKE_OSX_SYSROOT="$SDK_PATH"
+    cmake --build buildmac -j"$NCPU" --target install
+    echo "[svt-av1] Build complete"
+else
+    echo "[svt-av1] Already built, skipping"
+fi
+
+echo ""
+
+# =============================================================================
 # Step 5: Build FFmpeg
 # =============================================================================
 
@@ -274,13 +310,18 @@ if [ ! -f "$INSTALL_DIR/lib/libavformat.a" ]; then
         --enable-libdav1d \
         --enable-libvpx \
         --enable-libopus \
+        --enable-libsvtav1 \
         --disable-gpl \
         --disable-nonfree \
         --disable-encoders \
         --enable-encoder=libvpx_vp9 \
+        --enable-encoder=libsvtav1 \
         --disable-muxers \
         --enable-muxer=webm \
         --enable-muxer=matroska \
+        --enable-muxer=mp4 \
+        --enable-muxer=ivf \
+        --enable-bsf=av1_metadata \
         --disable-programs \
         --disable-doc \
         --disable-network \
@@ -326,6 +367,7 @@ done
 cp "$DEPS_DIR/lib/libdav1d.a" "$OUTPUT_LIB/"
 cp "$DEPS_DIR/lib/libvpx.a" "$OUTPUT_LIB/"
 cp "$DEPS_DIR/lib/libopus.a" "$OUTPUT_LIB/"
+cp "$DEPS_DIR/lib/libSvtAv1Enc.a" "$OUTPUT_LIB/"   # SVT-AV1 encoder (BSD), #58
 
 # Strip platform-foreign hwaccel headers. FFmpeg's `make install` ships
 # every hwaccel header regardless of whether the underlying library was

@@ -27,6 +27,8 @@ let package = Package(
                 .linkedLibrary("dav1d"),
                 .linkedLibrary("vpx"),
                 .linkedLibrary("opus"),
+                .linkedLibrary("SvtAv1Enc"),   // SVT-AV1 encoder (#58, BSD)
+                .linkedLibrary("c++"),         // SVT-AV1 is C++ → needs the C++ runtime
                 .linkedLibrary("z"),
                 .linkedLibrary("bz2"),
                 .linkedLibrary("iconv"),
