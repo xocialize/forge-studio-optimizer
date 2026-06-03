@@ -82,6 +82,7 @@ $RUNNER --corpus ../../Tests/Corpus/manifest.json \
 | 0021 | **Still quality-target search (#64)** — reuses the FormatBridge scorer/search seam; metric injected (`StillQualityScoring`), never linked into the bridge. **#71 resolved the metric roles**: **SSIMULACRA2 = lossy floor** (full-ref, monotonic; via the `ssimulacra2` reference binary at encode time — the libvmaf pattern), **SigLIP2 NR-IQA = restoration gate** only (too flat for compression targeting — Phase-4 finding). `brew install jpeg-xl` for the binary | Accepted |
 | 0022 | **GIF/animated disposition** — animated → MP4 (HEVC via FormatBridge), static → PNG (lossless oxipng) | Accepted |
 | 0023 | **Next-gen still output — AVIF native (ImageIO `public.avif`, macOS 13+, $0), WebP deferred** — runtime probe showed AVIF is a native ImageIO encode type (no vendoring); WebP needs libwebp + AVIF supersedes it (same "royalty-free wins" logic as AV1, ADR-0017) | Accepted |
+| 0024 | **Extract a shared `format-bridge` package (#45)** — `{FFmpegXC, FormatBridge}` is already a clean leaf unit (no upward coupling), but forge-studio's copy has DIVERGED ahead of Forge's (it's the source of truth: #48/49/50/32/52/61/58). Plan: standalone versioned SPM package seeded from forge-studio, both products consume it as a remote dep. forge-studio side verified extraction-ready; cross-repo execution pending the Forge monorepo + org decision | Proposed |
 
 > ADRs 0019–0022 are ImageBridge (renumbered from the draft's 0016–0019 to avoid colliding with the video ADRs above). ImageBridge PRD: `Docs/ImageBridge/ImageBridge-PRD-v0.1.md`.
 
@@ -184,7 +185,10 @@ via NAFNet (degraded input) + HD→4K SR + opt-in in-process AV1.
 Clean copy from `xocialize-code/Forge` (`feature/forge-2026-q2-refresh`), 2026-05-29.
 Full history lives in Forge. The realtime app (ForgeAlpha, MediaLibrary, app shell)
 stays in Forge. FormatBridge + FFmpegXC are a self-contained copy of the shared
-video engine; extracting a shared `format-bridge` package is a future cleanup.
+video engine; extracting a shared `format-bridge` package is planned in **ADR-0024**
+(#45) — forge-studio's copy is verified extraction-ready (clean leaf) and has DIVERGED
+ahead of Forge's (it's now the source of truth), so the cross-repo extraction takes
+forge-studio as the basis. Execution pends the Forge monorepo + an org decision.
 
 ## Skills worth loading
 
