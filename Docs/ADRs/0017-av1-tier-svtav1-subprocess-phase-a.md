@@ -1,9 +1,17 @@
 # ADR 0017 — AV1 export tier ships via SVT-AV1 (ffmpeg subprocess) first; in-process is Phase B
 
-**Date**: 2026-06-01
-**Status**: Accepted
+**Date**: 2026-06-01 (Phase B landed 2026-06-02)
+**Status**: Accepted — **Phase B done (#58)**
 **Driven by**: Step 4 (#52) — the research roadmap's AV1 opt-in export tier; builds on
 ADR-0013 (VideoToolbox-first ship encoder) and ADR-0001/0002 (dev-vs-runtime ffmpeg split).
+
+> **Update 2026-06-02 — Phase B (in-process) is done (#58).** SVT-AV1 2.3.0 (BSD, encoder-only,
+> static) is now built into FFmpegXC (`--enable-libsvtav1`), and `FormatBridge.FFmpegAV1Encoder`
+> does the full decode→yuv420p→libsvtav1→mp4 transcode in-process (CRF / preset / film-grain,
+> tagged BT.709) — no ffmpeg subprocess. `forge-quality-target --codec av1` routes through it.
+> Triggered by the deployment requirement: AV1 export must run self-contained inside the
+> sandboxed app. GPL check still clean (SVT-AV1 is BSD). VMAF *measurement* remains an external
+> dev-time tool (like libvmaf), which is fine. Subprocess path retired.
 
 ---
 
