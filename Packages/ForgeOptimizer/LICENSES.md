@@ -63,6 +63,15 @@ External research ([Survey 1](../../Docs/Research/research-2026-05-26-three-surv
 
 Alternative tactical fallback if retraining isn't an option: **MUSIQ-single-scale** (`google-research/musiq`, Apache-2.0, ~27M params, ~54 MB FP16, SRCC 0.905 on KonIQ-10k). 8× smaller than SigLIP2 but 5–10× larger than the distilled student. Port from TF/Flax to MLX-Swift estimate: ~1 engineer-week.
 
+**Status (#23, 2026-06-02) — explored, DECIDED research-only, NOT productized.** The
+distillation pipeline was built + validated (a ~2 MB MobileNet-V3 student absorbed QualiCLIP+
+at student↔teacher SRCC 0.920 on signage), but **SigLIP2 (Plan A) already delivers the
+quality + functions we need**, so this Plan-B is **kept out of the product** to avoid the
+CC-BY-NC exposure entirely. The work is preserved as a reference comparison on branch
+`research/iqa-distillation-planb` (the experiment script + `Docs/Benchmarks/iqa-distillation-planb.md`
+live there, NOT on `main`). Because nothing derived ships, **#30 legal review is moot** unless
+reactivated. Revisit only if SigLIP2's lazy-download proves untenable in production.
+
 ### Phase B.6 watch-list
 
 | Model | SPDX | Status |
