@@ -10,6 +10,9 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/ml-explore/mlx-swift", "0.31.2" ..< "0.32.0"),
         .package(name: "FormatBridge", path: "../FormatBridge"),
+        // SeedVR2 one-step diffusion SR (Apache-2.0) — native-MLX export tier
+        // replacing the OSEDiff_MLX stub (ADR-0007 revisit trigger).
+        .package(name: "SeedVR2MLX", path: "../../../seedvr2-mlx-swift"),
     ],
     targets: [
         .target(
@@ -19,6 +22,7 @@ let package = Package(
                 .product(name: "MLXNN", package: "mlx-swift"),
                 .product(name: "MLXFast", package: "mlx-swift"),
                 .product(name: "FormatBridge", package: "FormatBridge"),
+                .product(name: "SeedVR2MLX", package: "SeedVR2MLX"),
             ],
             resources: [
                 // Per-file .copy (NOT .copy("Resources")) so each lands at the
@@ -39,6 +43,7 @@ let package = Package(
             ],
             linkerSettings: [
                 .linkedFramework("CoreML"),
+                .linkedFramework("CoreImage"),
                 .linkedFramework("CoreVideo"),
                 .linkedFramework("Metal"),
                 .linkedFramework("MetalFX"),

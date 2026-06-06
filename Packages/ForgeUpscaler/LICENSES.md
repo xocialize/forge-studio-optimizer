@@ -27,6 +27,14 @@ This file documents the upstream-model license posture for everything ForgeUpsca
 - **Commercial use**: Permitted with the standard 3-clause attribution and notices.
 - Phase D rejected the alternative `themindstudio/RealESRGAN-x4plus-mlx` MLX port — no Swift loader, no safetensors, stale repo. See ADR-0007 for the full rationale.
 
+### SeedVR2-3B (export tier — native-MLX, ADR-0007 revisit trigger)
+
+- **Status**: Wired as `ForgeUpscaler.SeedVR2_MLX` (`Sources/ForgeUpscaler/Export/SeedVR2_MLX.swift`) — the native-MLX one-step-diffusion SR backend fulfilling ADR-0007's revisit trigger (replaces the `OSEDiff_MLX` stub). Opt-in via `ExportUpscaler(tier:)`; Real-ESRGAN CoreML remains the default tier.
+- **Model**: ByteDance Seed — *SeedVR2: One-Step Video Restoration via Diffusion Adversarial Post-Training* (ICLR 2026), [ByteDance-Seed/SeedVR](https://github.com/ByteDance-Seed/SeedVR).
+- **SPDX**: `Apache-2.0`. **Commercial use**: permitted with attribution + NOTICE retention.
+- **Weights**: `mlx-community/SeedVR2-3B-mlx` (fp16) / `mlx-community/SeedVR2-3B-mlx-int8` (on-device, near-lossless). Provenance chain: ByteDance Seed (Apache-2.0) → `numz/SeedVR2_comfyUI` (PyTorch fp16) → `filipstrand/mflux` (MLX reference) → MLX-Swift port `xocialize/seedvr2-mlx-swift` (the `SeedVR2MLX` SPM dependency). Bundled at inference: Whisper-derived audio path N/A (image SR); precomputed text embedding ships with the weights.
+- Apache-2.0 (no RAIL/behavioral-use clauses) — preferred over the `OSEDiff_MLX` candidate (PolyU-OPPO non-commercial + SD2.1 OpenRAIL++). int4 is NOT viable for this model (degrades); ship int8 on-device.
+
 ---
 
 ## 1B. Phase C playback baseline — SRVGGNetCompact variants (BSD-3-Clause)
