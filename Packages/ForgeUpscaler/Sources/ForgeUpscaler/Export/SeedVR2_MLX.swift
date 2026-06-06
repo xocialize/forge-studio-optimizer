@@ -39,25 +39,31 @@ public final class SeedVR2_MLX: ExportTier, @unchecked Sendable {
 
     private let upscaler: SeedVR2Upscaler
     private let seed: UInt64
+    /// LAB-wavelet color transfer (mflux parity) of refined output toward the upscaled input.
+    /// Applied per tile (style = that tile's pre-upscale); overlap blending keeps it seam-safe.
+    private let colorCorrect: Bool
     private let ciContext = CIContext(options: [.cacheIntermediates: false])
 
     /// Load from a local weights directory (transformer/vae/pos_emb/config).
-    public init(weightsDirectory: URL, scale: Int = 2, tileSize: Int = 256, tileOverlap: Int = 32, seed: UInt64 = 42) throws {
+    public init(weightsDirectory: URL, scale: Int = 2, tileSize: Int = 256, tileOverlap: Int = 32,
+                seed: UInt64 = 42, colorCorrect: Bool = true) throws {
         guard scale == 2 || scale == 4 else { throw ExportTierError.unsupportedScale(scale) }
         precondition(tileSize % 16 == 0, "SeedVR2 tile size must be a multiple of 16")
         do { self.upscaler = try SeedVR2Upscaler(directory: weightsDirectory) }
         catch { throw ExportTierError.modelLoadFailed("SeedVR2 weights at \(weightsDirectory.path): \(error)") }
-        self.scaleFactor = scale; self.inputTileSize = tileSize; self.tileOverlap = tileOverlap; self.seed = seed
+        self.scaleFactor = scale; self.inputTileSize = tileSize; self.tileOverlap = tileOverlap
+        self.seed = seed; self.colorCorrect = colorCorrect
     }
 
     /// Download (first run) + load from an HF repo id (default: published int8).
     public init(repoId: String = "mlx-community/SeedVR2-3B-mlx-int8", scale: Int = 2,
-                tileSize: Int = 256, tileOverlap: Int = 32, seed: UInt64 = 42) throws {
+                tileSize: Int = 256, tileOverlap: Int = 32, seed: UInt64 = 42, colorCorrect: Bool = true) throws {
         guard scale == 2 || scale == 4 else { throw ExportTierError.unsupportedScale(scale) }
         precondition(tileSize % 16 == 0, "SeedVR2 tile size must be a multiple of 16")
         do { self.upscaler = try SeedVR2Upscaler(repoId: repoId) }
         catch { throw ExportTierError.modelLoadFailed("SeedVR2 repo \(repoId): \(error)") }
-        self.scaleFactor = scale; self.inputTileSize = tileSize; self.tileOverlap = tileOverlap; self.seed = seed
+        self.scaleFactor = scale; self.inputTileSize = tileSize; self.tileOverlap = tileOverlap
+        self.seed = seed; self.colorCorrect = colorCorrect
     }
 
     public func upscale(_ buffer: CVPixelBuffer) async throws -> CVPixelBuffer {
@@ -66,14 +72,17 @@ public final class SeedVR2_MLX: ExportTier, @unchecked Sendable {
 
         // 2. Refine each tile through SeedVR2 (scale = 1; the buffer is already scaled).
         let tiler = MLXTileProcessor(tileSize: inputTileSize, overlap: tileOverlap, scale: 1)
-        let seedRef = seed, model = upscaler
+        let seedRef = seed, model = upscaler, doCC = colorCorrect
         return try tiler.process(upsized) { tile in
-            // tile: [1, th, tw, 3] NHWC RGB in [0,1]  ->  [-1,1] NCHW  -> refine -> [0,1] NHWC
-            let nchw = tile.transposed(0, 3, 1, 2) * 2 - 1
-            var out = model.upscale(processedImage: nchw, seed: seedRef)   // [1,3,1,th,tw]
-            if out.ndim == 5 { out = out[0..., 0..., 0] }                  // [1,3,th,tw]
-            out = clip((out + 1) * 0.5, min: 0, max: 1)
-            return out.transposed(0, 2, 3, 1)                              // [1,th,tw,3]
+            // tile: [1, th, tw, 3] NHWC RGB in [0,1]  ->  [-1,1] NCHW (= style, the upscaled input)
+            let style = tile.transposed(0, 3, 1, 2) * 2 - 1
+            var refined = model.upscale(processedImage: style, seed: seedRef)   // [1,3,1,th,tw]
+            if refined.ndim == 5 { refined = refined[0..., 0..., 0] }           // [1,3,th,tw]
+            // W4: transfer the input's color/lighting base onto the refined detail.
+            let corrected = doCC
+                ? SeedVR2ColorCorrect.labTransfer(content: refined, style: style, luminanceWeight: 0.8)
+                : refined
+            return clip((corrected + 1) * 0.5, min: 0, max: 1).transposed(0, 2, 3, 1)  // [1,th,tw,3] in [0,1]
         }
     }
 
